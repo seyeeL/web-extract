@@ -6,6 +6,7 @@ import { htmlToMarkdown } from '../src/html2md.js';
 import {
 	absolutizeUrls,
 	dropNested,
+	dropInvisibleText,
 	extractArticle,
 	keepGuard,
 	keepLineBreaks,
@@ -490,4 +491,46 @@ test('拿不到 http(s) 地址时不补（本地文件、空地址）', () => {
 		assert.equal(root.querySelector('a').getAttribute('href'), '/x');
 		assert.equal(root.querySelector('img').getAttribute('src'), 'a.png');
 	}
+});
+
+// 2026-10-09 实测 https://help.flomoapp.com/thinking/pkm.html（VuePress）：标题里嵌着 header-anchor「#」，
+// 外链后面挂着读屏器专用的「(opens new window)」。旧版标题取成「# 🗄 个人知识管理」，md 标题行成了 `# # 🗄 …`
+const VUEPRESS = `<html><head><title>🗄 个人知识管理 | flomo 101</title></head><body>
+	<nav class="navbar"><a href="/">flomo 101</a></nav>
+	<main class="page"><div class="theme-default-content content__default">
+		<h1 id="pkm"><a href="#pkm" class="header-anchor">#</a> 🗄 个人知识管理</h1>
+		<h2 id="replay"><a href="#replay" class="header-anchor">#</a> 直播回放</h2>
+		<p>${'这是少楠的一场关于知识管理的分享。'.repeat(20)}</p>
+		<ul><li>录播：<a href="https://www.bilibili.com/video/BV1Vq4y1X7i8/" target="_blank" rel="noopener noreferrer">B 站<span><svg class="icon outbound"></svg> <span class="sr-only">(opens new window)</span></span></a></li></ul>
+		<p>见<a href="#replay">上面那节</a>。<a href="#fig"><img src="https://img.example.com/a.png" alt="插图"></a></p>
+	</div></main>
+</body></html>`;
+
+test('回归：VuePress 标题去掉 header-anchor，正文去掉读屏器专用文字', () => {
+	const { document } = parseHTML(VUEPRESS);
+	const article = extractArticle(document, 'https://help.flomoapp.com/thinking/pkm.html');
+	assert.equal(article.title, '🗄 个人知识管理');
+	const markdown = htmlToMarkdown(article.root);
+	assert.match(markdown, /^# 🗄 个人知识管理$/m);
+	assert.match(markdown, /^## 直播回放$/m);
+	assert.doesNotMatch(markdown, /opens new window|# #/);
+	assert.match(markdown, /\[B 站\]\(https:\/\/www\.bilibili\.com\/video\/BV1Vq4y1X7i8\/\)/);
+	// 指向本页的普通链接是正文的一部分（退成纯文字），包着图片的锚点是插图，都不能删
+	assert.match(markdown, /见上面那节。/);
+	assert.match(markdown, /!\[插图\]\(https:\/\/img\.example\.com\/a\.png\)/);
+});
+
+test('标题锚点按类名或「#… 链接只有一个符号」认，其余链接不动', () => {
+	const { document } = parseHTML(`<div>
+		<h2>A<a class="hash-link" href="#a">​</a></h2>
+		<h3>B <a href="#b">¶</a></h3>
+		<h4>C <a href="#c" aria-label="link">🔗</a></h4>
+		<p><a href="#d">正常文字</a> <a href="https://e.example/">#</a></p>
+	</div>`);
+	const root = document.querySelector('div');
+	dropInvisibleText(root);
+	assert.deepEqual(
+		Array.from(root.querySelectorAll('a')).map((a) => a.getAttribute('href')),
+		['#d', 'https://e.example/'],
+	);
 });

@@ -368,6 +368,7 @@ UTC 07:19 加八小时正好）。老版页面有 `<time datetime>` 就直接用
 | 站点 | 说明 |
 |------|------|
 | 普通博客 / 文档站 | `<article>`、`main`、`.post-content` 这类语义容器一抓一个准 |
+| VuePress / VitePress 文档站（实测 [flomo 101](https://help.flomoapp.com/thinking/pkm.html)，2026-10-09） | 标题里的 `header-anchor`（`#`）和外链后面读屏器专用的 `.sr-only`「(opens new window)」由默认规则去掉，不需要站点规则 |
 
 （这张表还很空，遇到一个验一个往里加。）
 
