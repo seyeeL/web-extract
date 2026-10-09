@@ -1,6 +1,6 @@
 # 站点兼容清单
 
-web-extract 默认走通用启发式提取正文，大部分文章页不用配置就能抓。这里记的是**实测过**
+web-extract 走默认规则提取正文，大部分文章页不用配置就能抓。这里记的是**实测过**
 的站点：哪些验证通过、哪些写了专用规则、哪些还有已知缺口。
 
 ## 兼容域名
@@ -14,7 +14,7 @@ web-extract 默认走通用启发式提取正文，大部分文章页不用配�
 4. **[X（推特）](#x推特)** `x.com`、`twitter.com`：推文正文、配图、视频封面、引用推文、作者、时间
    全部通过；取的是你点开的那一条，互动数字不进正文，回复按需收（`--no-replies` 关掉）。
 
-> 不在这张清单上的站点走[通用启发式](#验证过但不需要专用规则的站点)，不用配置也能抓。
+> 不在这张清单上的站点走[默认规则](#验证过但不需要专用规则的站点)，不用配置也能抓。
 > 想加新站点看[加一个新站点](#加一个新站点)。
 
 ## 写了专用规则的站点
@@ -191,7 +191,7 @@ https://sns-webpic-qc.xhscdn.com/<时间戳>/<hash>/notes_pre_post/<id>!nd_dft_w
 | 配图 | `img[src*="twimg.com/media/"]`，尺寸档换成 `large` |
 | 视频 | 存不进 Markdown，留 `<video>` 的封面图（`videoPoster`） |
 | 引用推文 | 嵌在主推里的另一个 `<article>`，重排成「抬头 + 正文 + 配图」再套成引用段（`blockquote` + `formatQuote`） |
-| 作者 | 昵称那个指向个人页的链接，老版退到 `[data-testid="User-Name"]` |
+| 作者 | 主推里指向个人页、有文字、不以 @ 开头的那个链接（`authorFrom`）；框不出主推时退到选择器，老版是 `[data-testid="User-Name"]` |
 | 时间 | 主推优先从当前 URL 的 status id（snowflake）换算本地日期 `YYYY-MM-DD`；取不到时退到 `<time datetime>` 等页面绝对时间，不读普通 status 链接上的 Reply / Views 数字 |
 | 标题 | 普通推文：`作者 on X: 正文开头 40 字`；长文章优先取主推内的 `h1`，同样经 `titleFormat` 包装为 `作者 on X: 文章标题`，无 `h1` 时退回正文开头 |
 | 回复 | 主推底下的串和评论，一条一段引用（`**昵称 @handle** · [日期](链接)` + 正文），CLI 默认收，`--no-replies` 关掉（`replies`） |
@@ -216,6 +216,14 @@ https://sns-webpic-qc.xhscdn.com/<时间戳>/<hash>/notes_pre_post/<id>!nd_dft_w
 主推发布时间也已补验：文章顶部的 Reply 链接文字是 `17`，排在真正的日期链接前面，旧选择器会误取。
 现在从 status id 换算，输出 `2026-09-15`；与回复共用 snowflake 换算和本地时区。
 
+**昵称链接改成了相对地址（2026-10-09）。** 新版页面的昵称、@handle、头像三个链接原来是
+`https://x.com/yyyole`，改版后都是 `/yyyole`。旧选择器只认绝对地址，一个都命中不了，于是作者
+回退到 `<meta name="author">` 里的个人页地址，标题变成「https://x.com/yyyole on X: …」；回复的
+抬头没了昵称，「是不是作者自己的串」也因为 handle 全是空串而一律判成是。CSS 写不出「只有一级
+路径的相对链接」，头像链接又和昵称链接 href 一样、只是没有文字，所以改成在 `nameLinks` 里按 href
+筛，主推作者走 `authorFrom`。实测 [DGX Spark 那条](https://x.com/yyyole/status/2092082347391033806)
+作者、标题、回复抬头都恢复。
+
 **先框出「哪一条是主推」，再谈选择器。** 推文详情页上，上文、主推、回复是一排长得一模一样的
 `<article>`，引用推文还会在主推里再嵌一层。光靠选择器分不出哪个是用户点开的那条 —— 早期版本
 不框范围，剪出来是整页：登录/注册按钮、三条推、每条的头像和「转推 收藏 Views」全在里面
@@ -228,7 +236,7 @@ https://sns-webpic-qc.xhscdn.com/<时间戳>/<hash>/notes_pre_post/<id>!nd_dft_w
   「自己的」链接（`link.closest('article') === article`），按 `closest` 一路往上找会框到回复上去。
 
 框不出来（改版了、或者剪的是主页/时间线这种没有推文 id 的页面）就退回整页按规则收：剪出来是
-当前可见的一串推文，不算对，但比整页走通用启发式强。
+当前可见的一串推文，不算对，但比整页走默认规则强。
 
 **两代前端。** 2026 年 8 月的 x.com 是一套服务端渲染的 Tailwind 页面，整页一个 `data-testid`
 都没有，正文是 `div[dir="auto"]`；老版 React 页面（`#react-root` + `data-testid="tweetText"`）
@@ -355,7 +363,7 @@ UTC 07:19 加八小时正好）。老版页面有 `<time datetime>` 就直接用
 
 ## 验证过但不需要专用规则的站点
 
-通用启发式直接能用，没写规则：
+默认规则直接能用，没写站点规则：
 
 | 站点 | 说明 |
 |------|------|
@@ -370,7 +378,7 @@ UTC 07:19 加八小时正好）。老版页面有 `<time datetime>` 就直接用
 
 ## 加一个新站点
 
-1. 先看通用逻辑够不够：
+1. 先看默认规则够不够：
 
    ```bash
    node bin/web-extract.mjs parse "<url>" --browser --json
@@ -388,7 +396,7 @@ UTC 07:19 加八小时正好）。老版页面有 `<time datetime>` 就直接用
    列出页面里文字量最大的容器。和 `parse` 选中的对不上是选容器的问题，选对了但
    `markdown` 很短是被噪声过滤误删了。
 
-3. 往 `src/site-rules.js` 加一条。字段都是可选的，只写通用逻辑搞不定的那几项：
+3. 往 `src/site-rules.js` 加一条。字段都是可选的，只写默认规则搞不定的那几项：
 
    ```js
    {
@@ -402,6 +410,7 @@ UTC 07:19 加八小时正好）。老版页面有 `<time datetime>` 就直接用
      drop: ['.ad-slot'],            // 规则级的额外删除项
      title: '.post-title',          // 标题不在 og:title 里，或者 og:title 带站点名后缀
      publishedFrom: (doc, url) => '',// 页面上只有相对时间、真实时间藏在别处时用
+     authorFrom: (doc, url) => '',  // 作者选择器写不出来时用（推特的昵称链接和头像链接长得一样）
      scope: (doc, url) => null,     // 一页上有一堆同构卡片时，先框出「点开的是哪一个」
      replies: (doc, url) => [],     // 主贴底下的回复，withReplies 时才收
      titleFormat: ({ body, author }) => body,  // 独立标题或正文开头选定后再包一层

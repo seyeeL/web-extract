@@ -19,7 +19,7 @@ const ARTICLE = `<!doctype html><html><head>
 <nav class="navbar"><a href="/">首页</a><a href="/about">关于</a></nav>
 <article>
 <h1>样例文章</h1>
-<p>第一段正文，写得足够长，让通用启发式认得出这是正文而不是导航。这里再多写几句凑够字数，免得被当成短页面。</p>
+<p>第一段正文，写得足够长，让默认规则认得出这是正文而不是导航。这里再多写几句凑够字数，免得被当成短页面。</p>
 <p>第二段正文，带一个<a href="https://example.com/ref">链接</a>和<strong>加粗</strong>。同样多写几句，保证段落文字量够。</p>
 <ul><li>列表一</li><li>列表二</li></ul>
 <div class="related-posts"><a href="/a">推荐一</a><a href="/b">推荐二</a></div>

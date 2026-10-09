@@ -2,7 +2,7 @@
 
 提取网页正文，转成干净的 Markdown，同时给出标题、作者、发布时间。
 
-Extract the main content of a web page as clean Markdown, with title, author and publish date. A generic readability-style heuristic plus hand-written rules for sites it can't handle: WeChat 公众号, 微博 (Weibo), 小红书 (Xiaohongshu) and X/Twitter.
+Extract the main content of a web page as clean Markdown, with title, author and publish date. Default rules that work on most article pages, plus hand-written site rules where they fall short: WeChat 公众号, 微博 (Weibo), 小红书 (Xiaohongshu) and X/Twitter.
 
 一份代码三种用法：
 
@@ -44,7 +44,7 @@ web-extract parse <url>                   # 清洗后的正文 HTML
 | `publishedAt` | 发布时间，原样给出（站点给什么格式就是什么格式，X 是本机时区的 `YYYY-MM-DD`） |
 | `siteName` | 站点名，`og:site_name`，没有就用域名 |
 | `domain` | 域名，去掉 `www.` |
-| `markdown` | 正文 Markdown |
+| `markdown` | 正文 Markdown。站内相对链接和图片地址已补成绝对地址（按页面地址或 `<base href>`） |
 | `html` | 清洗后的正文 HTML |
 
 `-p` 接受上面的字段名，另有 `published`、`site`、`content` 三个别名。
@@ -135,9 +135,9 @@ Claude Code 里当插件装：
 
 ## 站点规则
 
-大部分文章页走通用启发式就能抓：先按 `article`、`main`、`.post-content` 这类语义选择器猜正文容器，猜不中就按「段落文字量 × (1 - 链接密度)」打分，最后在克隆体上删噪声（导航、推荐、评论区……）。
+大部分文章页走默认规则就能抓：先按 `article`、`main`、`.post-content` 这类语义选择器猜正文容器，猜不中就按「段落文字量 × (1 - 链接密度)」打分，最后在克隆体上删噪声（导航、推荐、评论区……）。
 
-通用逻辑对付不了的站点写了专用规则（`src/site-rules.js`）：
+默认规则对付不了的站点写了专用规则（`src/site-rules.js`）：
 
 | 站点 | 要点 |
 |------|------|
@@ -159,9 +159,8 @@ web-extract parse "<url>" --json       # 提取选中了什么
 
 ## 已知边界
 
-- **提取是启发式的。** 论坛、瀑布流、SPA 这类页面会漏，遇到一个验一个写规则。
+- **默认规则是按页面结构猜的。** 论坛、瀑布流、SPA 这类页面会漏，遇到一个验一个写站点规则。
 - **噪声过滤按 class / id 命名猜，会误伤。** 命名带 `share`、`nav`、`footer` 这类弱证据词但文字量大、不是链接堆的容器会保留；正文容器要是被命名成 `related` / `comments` 就一定会丢。
-- **相对链接原样保留。** 图片和链接的 `src` / `href` 取的是属性原值，站内相对地址不补全。
 - **静态模式只看服务端 HTML。** JS 渲染的正文要 `--browser`；要登录的要 `--attach`。
 - **公众号会限频。** 同一台机器短时间请求多了会跳人机验证页（`wappoc_appmsgcaptcha`），这时只能在自己的浏览器里打开后 `--attach`。
 

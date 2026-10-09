@@ -4,6 +4,7 @@ import { parseHTML } from 'linkedom';
 import { htmlToMarkdown } from '../src/html2md.js';
 
 import {
+	absolutizeUrls,
 	dropNested,
 	extractArticle,
 	keepGuard,
@@ -404,5 +405,89 @@ test('来源链接规范化不改其他站点和非 status 页的查询参数', 
 		'not a URL?s=46',
 	]) {
 		assert.equal(extractArticle(document, url).url, url);
+	}
+});
+
+// 2026-10 实测 https://x.com/yyyole/status/2092082347391033806 的结构：昵称、@handle、头像
+// 三个链接都是相对的 /yyyole，头像那个没有文字。旧选择器只认绝对地址，作者取成了
+// meta 里的 https://x.com/yyyole，标题跟着变成「https://x.com/yyyole on X: …」
+const X_RELATIVE_NAMES = `<html><head><meta name="author" content="https://x.com/yyyole"></head><body>
+	<ul id="urt:conversation-1">
+		<li><article>
+			<a href="/yyyole"><img src="https://pbs.twimg.com/profile_images/1/a.jpg" alt=""></a>
+			<a href="/yyyole">沐阳</a>
+			<a href="/yyyole">@yyyole</a>
+			<div dir="auto">DGX Spark 的最大对手？问问 <a href="/elonmusk">@elonmusk</a></div>
+			<a href="/yyyole/status/2092082347391033806/photo/1"><img src="https://pbs.twimg.com/media/abc?format=jpg&amp;name=small" alt=""></a>
+			<a href="/yyyole/status/2092082347391033806">10:51 · 2026年8月25日</a>
+			<a href="/compose/post?in_reply_to=2092082347391033806" aria-label="回复">82</a>
+		</article></li>
+		<li><article>
+			<a href="/passerby"><img src="https://pbs.twimg.com/profile_images/2/b.jpg" alt=""></a>
+			<a href="/passerby">路人</a>
+			<a href="/passerby">@passerby</a>
+			<div dir="auto">好用</div>
+			<a href="/passerby/status/2092082347391033999">2h</a>
+		</article></li>
+	</ul>
+</body></html>`;
+
+test('回归：X 昵称链接是相对地址时，作者和标题取昵称，不取 meta 里的个人页地址', () => {
+	const { document } = parseHTML(X_RELATIVE_NAMES);
+	const article = extractArticle(document, 'https://x.com/yyyole/status/2092082347391033806');
+	assert.equal(article.author, '沐阳');
+	assert.match(article.title, /^沐阳 on X: DGX Spark 的最大对手？/);
+	const markdown = htmlToMarkdown(article.root);
+	// 正文里的 @某人 是站内相对链接，照旧脱成纯文字，不被补成 https://x.com/elonmusk
+	assert.match(markdown, /问问 @elonmusk/);
+	assert.doesNotMatch(markdown, /\]\(https:\/\/x\.com\/elonmusk\)/);
+	assert.match(markdown, /!\[\]\(https:\/\/pbs\.twimg\.com\/media\/abc\?format=jpg&name=large\)/);
+});
+
+test('回归：X 昵称链接是相对地址时，回复抬头照样有昵称和 @handle，别人的评论不当成作者的串', () => {
+	const { document } = parseHTML(X_RELATIVE_NAMES);
+	const article = extractArticle(document, 'https://x.com/yyyole/status/2092082347391033806', { withReplies: true });
+	const markdown = htmlToMarkdown(article.root);
+	assert.match(markdown, /## Comments\n\n> \*\*路人 @passerby\*\* · \[[^\]]+\]\(https:\/\/x\.com\/passerby\/status\/2092082347391033999\)/);
+	assert.doesNotMatch(markdown, /> \*\*(@|\*\*)/, '抬头里的昵称不能是空的');
+});
+
+test('作者只剩一个地址时宁可留空，不拿地址充数', () => {
+	const { document } = parseHTML(`<html><head>
+		<meta name="author" content="https://example.com/u/someone">
+		<script type="application/ld+json">{"@type":"Article","author":{"name":"https://example.com/u/someone"}}</script>
+	</head><body><article><p>${'正文。'.repeat(80)}</p></article></body></html>`);
+	assert.equal(extractArticle(document, 'https://example.com/post').author, '');
+});
+
+test('正文里的相对地址补成绝对地址；锚点、带协议的地址不动', () => {
+	const { document } = parseHTML(`<html><head><base href="/blog/"></head><body><article>
+		<p>${'正文。'.repeat(80)}
+			<a href="post-2">下一篇</a> <a href="#sec">锚点</a> <a href="mailto:a@example.com">邮件</a>
+			<a href="//cdn.example.com/x">协议相对</a> <a href="https://other.example.org/A%20b">外链</a>
+		</p>
+		<img src="img/a.png" alt="相对">
+		<img src="data:image/gif;base64,R0lGOD" data-src="/lazy.png" alt="懒加载">
+	</article></body></html>`);
+	const before = document.body.innerHTML;
+	const markdown = htmlToMarkdown(extractArticle(document, 'https://example.com/2026/a.html').root);
+	assert.match(markdown, /\[下一篇\]\(https:\/\/example\.com\/blog\/post-2\)/, '按 <base href> 补');
+	assert.match(markdown, /锚点/);
+	assert.doesNotMatch(markdown, /\]\(#sec\)|a\.html#sec/);
+	assert.match(markdown, /\[邮件\]\(mailto:a@example\.com\)/);
+	assert.match(markdown, /\[协议相对\]\(https:\/\/cdn\.example\.com\/x\)/);
+	assert.match(markdown, /\[外链\]\(https:\/\/other\.example\.org\/A%20b\)/);
+	assert.match(markdown, /!\[相对\]\(https:\/\/example\.com\/blog\/img\/a\.png\)/);
+	assert.match(markdown, /!\[懒加载\]\(https:\/\/example\.com\/lazy\.png\)/);
+	assert.equal(document.body.innerHTML, before, '只改克隆体');
+});
+
+test('拿不到 http(s) 地址时不补（本地文件、空地址）', () => {
+	for (const base of ['', 'file:///tmp/a.html', 'not a url']) {
+		const { document } = parseHTML('<div><a href="/x">x</a><img src="a.png"></div>');
+		const root = document.querySelector('div');
+		absolutizeUrls(root, base);
+		assert.equal(root.querySelector('a').getAttribute('href'), '/x');
+		assert.equal(root.querySelector('img').getAttribute('src'), 'a.png');
 	}
 });

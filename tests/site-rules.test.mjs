@@ -30,7 +30,7 @@ test('子域继承', () => {
 	assert.equal(ruleFor('https://www.weibo.com/x')?.name, '微博');
 });
 
-test('没配的站点走通用逻辑，不返回规则', () => {
+test('没配的站点走默认规则，不返回站点规则', () => {
 	assert.equal(ruleFor('https://example.com/a'), null);
 	// qq.com 下别的子域不该被公众号规则吃掉
 	assert.equal(ruleFor('https://news.qq.com/a'), null);
