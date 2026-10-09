@@ -658,3 +658,62 @@ test('回复和正文用的是同一份选择器，别各写一份', () => {
 		'合成的回复行里也要保住换行',
 	);
 });
+
+/** 知识星球主题详情的最小 DOM：结构按 2026-10-09 登录态下的 wx.zsxq.com 抄的。 */
+function zsxqDetail({ body, date = ' 2026-04-28 09:55 ', gallery = '' }) {
+	return `<app-topic-detail><div class="topic-detail-panel">
+		<div class="enter-group"><span class="left">来自：某星球</span><span class="right">进入星球</span></div>
+		<app-topic-header><div class="header-container"><div class="author">
+			<img class="avatar" src="https://images.zsxq.com/avatar">
+			<div class="info"><div class="role member">鞋子</div><div class="date">${date}</div></div>
+		</div></div></app-topic-header>
+		<div><app-talk-content><div class="talk-content-container">
+			<div class="content">${body}</div><p class="ellipsis">...</p><p class="showAll"> 展开全部 </p>
+			${gallery}
+		</div></app-talk-content></div>
+		<div class="operation-icon"><div title="点赞" class="like"></div></div>
+		<div class="like-user"><img class="like-image" src="https://images.zsxq.com/liker"><span class="like-text">觉得很赞</span></div>
+		<div class="comment-container"><app-comment-item><div class="text"><span class="text">评论噪声</span></div>
+			<app-image-gallery><img class="item" src="https://images.zsxq.com/comment-img"></app-image-gallery>
+		</app-comment-item></div>
+	</div></app-topic-detail>`;
+}
+
+test('按 hostname 命中知识星球，长文章域名不归它管', () => {
+	assert.equal(ruleFor('https://wx.zsxq.com/group/28882124248121/topic/45544882888221858')?.name, '知识星球');
+	// articles.zsxq.com 是另一套页面，titleFromBody 套过去会把文章标题换掉
+	assert.equal(ruleFor('https://articles.zsxq.com/id_abc.html'), null);
+});
+
+test('知识星球独立详情页：正文分段、作者、时间，不带展开按钮和点赞评论', () => {
+	const { document } = parseHTML(`<html><head><title>给大家分享...-知识星球</title></head><body>${zsxqDetail({
+		body: '第一段\n\n<a href="https://wx.zsxq.com/tags/出海/1" class="hashtag">#出海 </a>' +
+			'<a class="link-of-topic noLinkIcon" href="https://wx.zsxq.com/footprint/1">@鞋子</a>' +
+			'<span class="emoji_span"><img class="emoji_local" src="assets_dweb/images/emoji/得意.png"></span>' +
+			'见 <a class="link-of-topic" href="https://stripe.com">stripe.com</a>',
+		date: ' 2025-10-02 22:28 <span class="readed-count">阅读人数 32</span>',
+		gallery: '<app-image-gallery><div class="image-gallery-container"><div class="more">' +
+			'<div class="image-container"><img class="item" src="https://images.zsxq.com/p1?x=1"></div>' +
+			'</div></div></app-image-gallery>',
+	})}</body></html>`);
+	const article = extractArticle(document, 'https://wx.zsxq.com/group/1/topic/2');
+	const markdown = htmlToMarkdown(article.root);
+	assert.equal(article.author, '鞋子');
+	assert.equal(article.publishedAt, '2025-10-02 22:28', '阅读人数不进时间');
+	assert.match(article.title, /^第一段/, '页面标题带「...」，取正文开头');
+	assert.match(markdown, /^第一段\n\n#出海 @鞋子见 \[stripe\.com\]\(https:\/\/stripe\.com\)/);
+	assert.match(markdown, /!\[\]\(https:\/\/images\.zsxq\.com\/p1\?x=1\)$/);
+	assert.doesNotMatch(markdown, /展开全部|\.\.\.|觉得很赞|评论噪声|来自|emoji|liker|comment-img|avatar/);
+	assert.doesNotMatch(markdown, /tags\/|footprint/, '站内话题和 @ 链接脱成文字');
+});
+
+test('知识星球主页上点开的详情浮层：信息流里的其它主题不混进来', () => {
+	const { document } = parseHTML(`<html><head><title>某星球-知识星球</title></head><body>
+		<app-topic><app-talk-content><div class="talk-content-container"><div class="content">信息流里的别的主题</div></div></app-talk-content></app-topic>
+		${zsxqDetail({ body: '浮层里的主题' })}
+	</body></html>`);
+	const article = extractArticle(document, 'https://wx.zsxq.com/group/1');
+	assert.equal(htmlToMarkdown(article.root), '浮层里的主题');
+	assert.equal(article.title, '浮层里的主题');
+	assert.equal(article.author, '鞋子');
+});

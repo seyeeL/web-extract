@@ -678,6 +678,36 @@ export const SITE_RULES = [
 		// 回复搬进合成行之后原来那个 div 就没了，按类名再点一次
 		keepLineBreaks: [...TWEET_TEXT, `.${TWEET_BODY_CLASS}`],
 	},
+	{
+		name: '知识星球',
+		// 只认网页版 wx.zsxq.com。长文章在 articles.zsxq.com，是另一套页面，这里的
+		// titleFromBody 套过去会把文章标题换成正文开头
+		hosts: ['wx.zsxq.com'],
+		// 主题详情有两种入口，DOM 都是 app-topic-detail：直接打开 /topic/<id> 的独立页，
+		// 和星球主页上点「查看详情」弹出的浮层（地址栏还是星球主页）。主页信息流里每条
+		// 主题也是 app-talk-content，不限定在 app-topic-detail 里就会把整页信息流收进来。
+		// 文字在前图片在后；配图在 app-talk-content 里面，评论区的图不在，不会混进来。
+		// 「...」「展开全部」是 .content 的兄弟节点，不点名正文里就没有它们
+		root: [
+			'app-topic-detail app-talk-content .content',
+			'app-topic-detail app-talk-content app-image-gallery',
+		],
+		author: 'app-topic-detail app-topic-header .role',
+		// 「 2026-04-28 09:55 阅读人数 32」：星主看得到阅读人数，跟在时间后面
+		published: 'app-topic-detail app-topic-header .date',
+		normalizePublished: (text) => {
+			const match = String(text).match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
+			return match ? match[0] : String(text).trim();
+		},
+		// 主题没有标题，页面标题是正文前二十来个字加「...-知识星球」
+		titleFromBody: true,
+		// 表情是 <img>（assets_dweb/images/emoji/得意.png），下游转存图片时会一张张传上去
+		drop: ['img.emoji_local'],
+		// #话题 指向站内标签页，@某人 指向站内个人足迹页，在笔记里都点不开；正文里的外链留着
+		unwrap: ['a.hashtag', 'a.noLinkIcon'],
+		// 正文的分段是文本里的 \n 加 CSS white-space，HTML 里没有 <p> 也没有 <br>
+		keepLineBreaks: ['.content'],
+	},
 ];
 
 /** 命中的规则，没有就返回 null。子域自动继承（m.weibo.cn 命中 weibo.cn）。 */

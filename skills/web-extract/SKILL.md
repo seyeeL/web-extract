@@ -1,6 +1,6 @@
 ---
 name: web-extract
-description: Extract clean Markdown (title, author, publish date, body) from a web page with the web-extract CLI. Prefer over WebFetch when you need the article itself - it strips navigation, ads, comments and recommendation lists, and has site rules for WeChat 公众号 (mp.weixin.qq.com), 微博, 小红书 and X/Twitter. Use --browser for JS-rendered pages.
+description: Extract clean Markdown (title, author, publish date, body) from a web page with the web-extract CLI. Prefer over WebFetch when you need the article itself - it strips navigation, ads, comments and recommendation lists, and has site rules for WeChat 公众号 (mp.weixin.qq.com), 微博, 小红书, X/Twitter and 知识星球 (wx.zsxq.com). Use --browser for JS-rendered pages.
 ---
 
 # web-extract
@@ -43,7 +43,7 @@ web-extract parse <url> -p domain
 | 普通博客、新闻、文档站 | 不用加 |
 | X / Twitter、微博 | `--browser` |
 | 微信公众号 | `--wx --browser` |
-| 小红书 | 要登录态：`--attach`（见下） |
+| 小红书、知识星球 | 要登录态：`--attach`（见下） |
 
 正文不到 100 个字符时 stderr 会给提示：静态模式下提示改用 `--browser`，加上重跑；提示里出现「落地地址」且是登录页、验证页（公众号短时间请求多了会跳 `wappoc_appmsgcaptcha`）时，换 `--attach`。别把空结果当成页面没内容。
 

@@ -2,7 +2,7 @@
 
 提取网页正文，转成干净的 Markdown，同时给出标题、作者、发布时间。
 
-Extract the main content of a web page as clean Markdown, with title, author and publish date. Default rules that work on most article pages, plus hand-written site rules where they fall short: WeChat 公众号, 微博 (Weibo), 小红书 (Xiaohongshu) and X/Twitter.
+Extract the main content of a web page as clean Markdown, with title, author and publish date. Default rules that work on most article pages, plus hand-written site rules where they fall short: WeChat 公众号, 微博 (Weibo), 小红书 (Xiaohongshu), X/Twitter and 知识星球 (zsxq).
 
 一份代码三种用法：
 
@@ -55,7 +55,7 @@ web-extract parse <url>                   # 清洗后的正文 HTML
 |------|------|------|
 | 静态 | （默认） | 服务端直出 HTML 的页面：博客、新闻、文档站。几百毫秒 |
 | 浏览器 | `--browser` | 正文靠 JS 渲染的：X、微博、公众号。起一个一次性 profile 的 headless Chrome，十几秒 |
-| 连已开的浏览器 | `--attach [--port 9222]` | 要登录态的：小红书。不导航、不读 cookie，只在已打开的 tab 里跑提取 |
+| 连已开的浏览器 | `--attach [--port 9222]` | 要登录态的：小红书、知识星球。不导航、不读 cookie，只在已打开的 tab 里跑提取 |
 
 静态抓取有 30 秒超时（`--timeout`）和 20 MB 上限，按响应头或 `<meta>` 识别 GBK 这类编码。
 浏览器模式页面 load 之后再等 5 秒（`--wait`）给首屏 JS 把正文塞进 DOM；headless 的 UA 会换成
@@ -145,6 +145,7 @@ Claude Code 里当插件装：
 | 微博 | 九宫格配图换原图；没有标题，取正文开头 |
 | 小红书 | 正文分段靠 `\n`；发布时间从 `__INITIAL_STATE__` 取；要登录态 |
 | X / Twitter | 按 URL 框出主推；引用推文、回复排成引用段；视频留封面；日期从推文 id 算 |
+| 知识星球 | 独立详情页和主页详情浮层都只收那一条主题；正文分段靠 `\n`；要登录态 |
 
 每个站点怎么取、实测过哪些页面、踩过什么坑、怎么加新站点：**[docs/sites.md](docs/sites.md)**。
 
