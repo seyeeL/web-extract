@@ -1,0 +1,15 @@
+{
+  "name": "web-extract",
+  "owner": {
+    "name": "seyeeL",
+    "url": "https://github.com/seyeeL"
+  },
+  "plugins": [
+    {
+      "name": "web-extract",
+      "source": "./",
+      "description": "Extract clean Markdown from web pages with the web-extract CLI",
+      "version": "0.1.0"
+    }
+  ]
+}

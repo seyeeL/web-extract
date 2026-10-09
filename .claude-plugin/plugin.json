@@ -1,0 +1,12 @@
+{
+  "name": "web-extract",
+  "version": "0.1.0",
+  "description": "Extract clean Markdown from web pages, with site rules for WeChat, Weibo, Xiaohongshu and X/Twitter.",
+  "author": {
+    "name": "seyeeL",
+    "url": "https://github.com/seyeeL"
+  },
+  "repository": "https://github.com/seyeeL/web-extract",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "keywords": ["markdown", "web-clipper", "readability", "wechat", "weibo", "xiaohongshu", "twitter"]
+}
