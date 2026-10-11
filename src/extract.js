@@ -132,7 +132,7 @@ function pickSiteName(doc, url) {
 	}
 }
 
-/** 微博这类站点没有标题，取正文开头当标题。 */
+/** 微博这类站点没有标题，取正文开头当标题。截多少字由规则的 titleLength 定，默认 40。 */
 function titleFromBody(root, limit = 40) {
 	const text = (root?.textContent ?? '').replace(/\s+/g, ' ').trim();
 	if (!text) return '';
@@ -207,7 +207,7 @@ function pickTitle(scope, doc, siteName, rule, root, author = '') {
 	if (rule?.title) {
 		text = visibleText(scope.querySelector(rule.title));
 	}
-	if (!text && rule?.titleFromBody) text = titleFromBody(root);
+	if (!text && rule?.titleFromBody) text = titleFromBody(root, rule.titleLength);
 	// 独立标题和正文开头都走同一层包装，推特长文章也保留「作者 on X: …」。
 	if (text) {
 		return rule.titleFormat

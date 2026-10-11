@@ -518,8 +518,15 @@ export const SITE_RULES = [
 		root: ['.wbpro-feed-content', '[class*="wbtext"]'],
 		author: 'a[class*="_name_"][href*="/u/"]',
 		published: 'a[class*="_time_"]',
-		// 微博没有标题这个概念，拿正文开头当标题
+		// 微博没有标题这个概念，拿正文开头当标题，包成「@作者的微博：正文开头…」：
+		// 笔记列表里一眼看出是谁的哪条。前缀已经占了七八个字，正文只截 30 字
+		// （文件名也按标题起，太长会顶到 200 字节的上限）。取不到作者就只留正文
 		titleFromBody: true,
+		titleLength: 30,
+		titleFormat: ({ body, author }) => {
+			const name = String(author ?? '').replace(/^@/, '').trim();
+			return name ? `@${name}的微博：${body}` : body;
+		},
 		// 时间是两位年份，月日还不补零：26-8-13 12:19 / 24-12-20 12:17
 		normalizePublished: (text) =>
 			String(text).replace(

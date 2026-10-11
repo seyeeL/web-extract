@@ -534,3 +534,23 @@ test('标题锚点按类名或「#… 链接只有一个符号」认，其余链
 		['#d', 'https://e.example/'],
 	);
 });
+
+test('微博标题是「@作者的微博：正文开头 30 字…」，取不到作者只留正文', () => {
+	const body = '今天把剪藏插件的设置页修好了，token 终于能存进去，顺手把微博的标题格式也改了一下，看看效果';
+	const page = (author) => `<html><body>
+		${author ? `<a class="_name_1b05f_122" href="/u/1088413295">${author}</a>` : ''}
+		<a class="_time_1tpft_33" href="/1088413295/5113631702256640">26-10-11 14:20</a>
+		<div class="wbpro-feed-content"><div class="_wbtext_1h76l_19">${body}</div></div>
+	</body></html>`;
+	const url = 'https://weibo.com/1088413295/5113631702256640';
+	const expected = body.slice(0, 30) + '…';
+
+	const { document } = parseHTML(page('小咪'));
+	assert.equal(extractArticle(document, url).title, `@小咪的微博：${expected}`);
+
+	const { document: atName } = parseHTML(page('@小咪'));
+	assert.equal(extractArticle(atName, url).title, `@小咪的微博：${expected}`, '名字自带 @ 不能叠成 @@');
+
+	const { document: anonymous } = parseHTML(page(''));
+	assert.equal(extractArticle(anonymous, url).title, expected);
+});

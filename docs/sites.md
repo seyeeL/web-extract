@@ -87,7 +87,7 @@ web-extract 走默认规则提取正文，大部分文章页不用配置就能�
 | 正文 + 配图 | `.wbpro-feed-content`，兜底 `[class*="wbtext"]` |
 | 作者 | `a[class*="_name_"][href*="/u/"]` |
 | 时间 | `a[class*="_time_"]`，两位年份补成四位、月日补零 |
-| 标题 | 微博没有标题，取正文开头 40 字 |
+| 标题 | 微博没有标题：`@作者的微博：正文开头 30 字…`（2026-10-11）；取不到作者只留正文开头 |
 | 图片 | 缩略图尺寸段换成 `large`（原图） |
 
 实测 2026-08-20 两条：[纯文字](https://weibo.com/1088413295/5113631702256640)483 字符正文；
@@ -446,6 +446,7 @@ UTC 07:19 加八小时正好）。老版页面有 `<time datetime>` 就直接用
      author: '.byline',
      published: 'time.published',
      titleFromBody: true,           // 站点没有标题时用
+     titleLength: 40,               // titleFromBody 截正文开头多少字，默认 40
      normalizePublished: (t) => t,  // 时间格式怪的时候用
      drop: ['.ad-slot'],            // 规则级的额外删除项
      title: '.post-title',          // 标题不在 og:title 里，或者 og:title 带站点名后缀
