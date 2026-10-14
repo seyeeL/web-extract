@@ -5,6 +5,7 @@ import { extractArticle } from '../src/extract.js';
 
 import {
 	SITE_RULES,
+	gistCreatedAt,
 	ruleFor,
 	timeFromStatusId,
 	upgradeSinaImage,
@@ -716,4 +717,37 @@ test('知识星球主页上点开的详情浮层：信息流里的其它主题�
 	assert.equal(htmlToMarkdown(article.root), '浮层里的主题');
 	assert.equal(article.title, '浮层里的主题');
 	assert.equal(article.author, '鞋子');
+});
+
+const gistPage = (...labels) => `<html><head>
+	<meta property="og:title" content="LLM Wiki v2">
+	<meta property="article:author" content="262588213843476">
+</head><body>
+	<div class="gisthead"><h1><span class="author"><a href="/rohitg00">rohitg00</a></span> / <strong>llm-wiki.md</strong></h1>
+		<div class="note">Last active <relative-time datetime="2026-10-12T11:55:10Z">October 12, 2026 11:55</relative-time></div></div>
+	<div class="js-gist-file-update-container">${labels.map((label) => `<div class="file"><div aria-label="${label}"><article class="markdown-body"><p>${'正文。'.repeat(80)}</p></article></div></div>`).join('')}</div>
+	<div class="js-comment"><div class="author">someone-in-comments</div><p>${'评论。'.repeat(80)}</p></div>
+</body></html>`;
+
+test('gist：作者是页头的用户名，发布时间是创建时间不是 Last active', () => {
+	const { document } = parseHTML(gistPage('llm-wiki.md content, created by rohitg00 on 10:39AM on April 06, 2026.'));
+	const article = extractArticle(document, 'https://gist.github.com/rohitg00/2067ab416f7bbe447c1977edaaa681e2');
+	assert.equal(article.author, 'rohitg00');
+	assert.equal(article.publishedAt, '2026-04-06 10:39');
+	assert.doesNotMatch(htmlToMarkdown(article.root), /评论|Last active/, '只收文件块');
+});
+
+test('gist 创建时间：今年的不写年份补今年，补完比现在晚就是去年；PM 和 12 点换算；多文件取最早', () => {
+	const doc = (...labels) => parseHTML(gistPage(...labels)).document;
+	const now = new Date('2026-10-14T08:00:00Z');
+	assert.equal(gistCreatedAt(doc('a.md content, created by u on 10:39AM on April 06.'), now), '2026-04-06 10:39');
+	assert.equal(gistCreatedAt(doc('a.md content, created by u on 11:30PM on December 31.'), now), '2025-12-31 23:30');
+	assert.equal(gistCreatedAt(doc('a.py content, created by u on 09:12PM on July 26, 2015.'), now), '2015-07-26 21:12');
+	assert.equal(gistCreatedAt(doc('a.md content, created by u on 12:05AM on May 01, 2020.'), now), '2020-05-01 00:05');
+	assert.equal(gistCreatedAt(doc('a.md content, created by u on 12:05PM on May 01, 2020.'), now), '2020-05-01 12:05');
+	assert.equal(gistCreatedAt(doc(
+		'b.md content, created by u on 08:00AM on March 02, 2021.',
+		'a.md content, created by u on 07:00AM on March 01, 2021.',
+	), now), '2021-03-01 07:00');
+	assert.equal(gistCreatedAt(doc('看不懂的 label'), now), '', '认不出就留空，交给默认规则');
 });

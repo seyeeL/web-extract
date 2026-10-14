@@ -15,6 +15,7 @@ web-extract 走默认规则提取正文，大部分文章页不用配置就能�
    全部通过；取的是你点开的那一条，互动数字不进正文，回复按需收（`--no-replies` 关掉）。
 5. **[知识星球](#知识星球)** `wx.zsxq.com`：主题正文、配图、作者、时间全部通过，独立详情页和星球主页上的
    详情浮层两种入口都行；**要登录态**。
+6. **[GitHub Gist](#github-gist)** `gist.github.com`：正文（多文件都收）、作者、创建时间全部通过，静态抓取就行。
 
 > 不在这张清单上的站点走[默认规则](#验证过但不需要专用规则的站点)，不用配置也能抓。
 > 想加新站点看[加一个新站点](#加一个新站点)。
@@ -399,6 +400,36 @@ UTC 07:19 加八小时正好）。老版页面有 `<time datetime>` 就直接用
 
 **别直接调它的接口。** `api.zsxq.com` 对页面外的请求返回 `1059 不支持非官方工具访问`，
 只在页面里跑 DOM 提取（`--attach`，或者扩展的 content script）。
+
+### GitHub Gist
+
+`gist.github.com`
+
+| 项 | 取法 |
+|----|------|
+| 正文 | `.js-gist-file-update-container`：所有文件块都在这层里，页头（头像、Download ZIP、Star）和评论区不在 |
+| 作者 | 页头 `.gisthead .author a` |
+| 时间 | **创建时间**，`YYYY-MM-DD HH:mm`，从文件块的 aria-label 里取（`gistCreatedAt`） |
+| 标题 | 默认规则（`og:title`，就是 gist 的描述） |
+
+实测 2026-10-14，静态和 `--browser` 结果一样：
+
+| 版式 | 样例 | 结果 |
+|------|------|------|
+| Markdown，今年建的 | [LLM Wiki v2](https://gist.github.com/rohitg00/2067ab416f7bbe447c1977edaaa681e2) | 作者 rohitg00，时间 `2026-04-06 10:39`，和 API 的 `created_at` 对得上；正文和默认规则一字不差 |
+| 代码，往年建的 | [min-char-rnn.py](https://gist.github.com/karpathy/d4dee566867f8291f086) | 作者 karpathy，时间 `2015-07-26 21:12` |
+
+几个坑：
+
+| 坑 | 表现 | 规则 |
+|----|------|------|
+| `article:author` 是一串数字 | GitHub 整站填的是它自己 Facebook 主页的 id（`262588213843476`），默认规则以前当成作者名 | 修在默认规则：`article:author` / JSON-LD 作者是纯数字的跳过，和只有地址的一样往下找。github.com 别的页面也受益 |
+| 页头的时间不是发布时间 | 唯一的 `<relative-time>` 是「Last active」，评论、改版都会往后推 | 不用它。创建时间只在文件块的 aria-label 里：`… created by rohitg00 on 10:39AM on April 06.` |
+| 今年建的不写年份 | 往年的是 `on July 26, 2015.`，今年的只到 `April 06` | 补当前年份（UTC）；补完比现在还晚就是去年（年底存下的页面过了年才提取） |
+| 时区 | 未登录的页面按 UTC 写 | 原样给出，不换算。登录后 `--attach` 抓的会不会按个人时区写没验过 |
+
+**代码文件转出来是一张表**：GitHub 把代码按行渲染成「行号 | 代码」的表格，转成 Markdown 就是一张两列表，
+不是代码块。默认规则就是这样，加这条规则前后没变；要改得给规则加个把表格换成 `<pre>` 的钩子，还没做。
 
 ## 验证过但不需要专用规则的站点
 

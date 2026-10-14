@@ -225,6 +225,10 @@ function pickTitle(scope, doc, siteName, rule, root, author = '') {
 
 // article:author、JSON-LD 的 author 常常给的是个人页地址，不是人名
 const LOOKS_LIKE_URL = /^https?:\/\//i;
+// Open Graph 的 article:author 也可以是 Facebook 的数字 id。GitHub 整站都填它自己
+// Facebook 主页的 id（262588213843476），当成作者名就是一串数字
+const LOOKS_LIKE_ID = /^\d+$/;
+const notAName = (value) => LOOKS_LIKE_URL.test(value) || LOOKS_LIKE_ID.test(value);
 
 function pickAuthor(scope, doc, rule, url = '') {
 	// 选择器表达不了的取法（推特的昵称链接和头像链接长得一样，要在函数里筛）
@@ -238,9 +242,9 @@ function pickAuthor(scope, doc, rule, url = '') {
 		if (text) return text;
 	}
 	const declared = metaContent(doc, 'author', 'article:author', 'twitter:creator', 'byl');
-	if (declared && !LOOKS_LIKE_URL.test(declared)) return declared;
+	if (declared && !notAName(declared)) return declared;
 	const ld = ldValue(doc, 'author');
-	if (ld && !LOOKS_LIKE_URL.test(ld)) return ld;
+	if (ld && !notAName(ld)) return ld;
 	for (const selector of ['[rel="author"]', '[itemprop="author"]', '.author', '.byline', '#js_name']) {
 		const el = doc.querySelector(selector);
 		const text = (el?.textContent ?? '').replace(/\s+/g, ' ').trim();

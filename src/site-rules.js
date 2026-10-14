@@ -484,6 +484,36 @@ function noteIdFromUrl(url) {
 	}
 }
 
+const GIST_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+	'August', 'September', 'October', 'November', 'December'];
+// 文件块的 aria-label：「llm-wiki.md content, created by rohitg00 on 10:39AM on April 06.」，
+// 往年建的带年份：「… on 09:12PM on July 26, 2015.」
+const GIST_CREATED = /created by .+? on (\d{1,2}):(\d{2})\s*(AM|PM) on ([A-Za-z]+) (\d{1,2})(?:, (\d{4}))?\./;
+
+/**
+ * gist 的创建时间，`YYYY-MM-DD HH:mm`（未登录时页面按 UTC 写）。
+ *
+ * 页面头上那个 <relative-time> 是「Last active」，评论、改版都会把它往后推，不是发布时间。
+ * 创建时间只出现在每个文件块的 aria-label 里，今年建的不写年份，补今年；补完要是比
+ * 现在还晚（年底存下的页面过了年才提取），就是去年的。多文件的 gist 取最早那个。
+ */
+export function gistCreatedAt(doc, now = new Date()) {
+	let earliest = null;
+	for (const el of Array.from(doc.querySelectorAll('[aria-label*="created by"]'))) {
+		const match = (el.getAttribute('aria-label') || '').match(GIST_CREATED);
+		if (!match) continue;
+		const [, h, min, ampm, monthName, day, year] = match;
+		const month = GIST_MONTHS.indexOf(monthName);
+		if (month < 0) continue;
+		const hour = (Number(h) % 12) + (ampm === 'PM' ? 12 : 0);
+		const stamp = (y) => Date.UTC(y, month, Number(day), hour, Number(min));
+		let ms = stamp(year ? Number(year) : now.getUTCFullYear());
+		if (!year && ms > now.getTime()) ms = stamp(now.getUTCFullYear() - 1);
+		if (earliest === null || ms < earliest) earliest = ms;
+	}
+	return earliest === null ? '' : new Date(earliest).toISOString().slice(0, 16).replace('T', ' ');
+}
+
 export const SITE_RULES = [
 	{
 		name: '微信公众号',
@@ -714,6 +744,18 @@ export const SITE_RULES = [
 		unwrap: ['a.hashtag', 'a.noLinkIcon'],
 		// 正文的分段是文本里的 \n 加 CSS white-space，HTML 里没有 <p> 也没有 <br>
 		keepLineBreaks: ['.content'],
+	},
+	{
+		name: 'GitHub Gist',
+		hosts: ['gist.github.com'],
+		// 所有文件块都在这一层里（多文件的 gist 一个都不漏），评论区、页头不在里面。
+		// 标题走默认规则（og:title 是 gist 的描述）
+		root: '.js-gist-file-update-container',
+		// 默认规则也能从 .author 拿到（article:author 那串数字 id 在默认规则里就跳过了），
+		// 这里点名页头那个，省得被评论区的 .author 抢先
+		author: '.gisthead .author a, h1 .author a',
+		// 页面上没有 published_time，唯一的 <relative-time> 是「Last active」
+		publishedFrom: (doc) => gistCreatedAt(doc),
 	},
 ];
 

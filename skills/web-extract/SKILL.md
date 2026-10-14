@@ -1,6 +1,6 @@
 ---
 name: web-extract
-description: Extract clean Markdown (title, author, publish date, body) from a web page with the web-extract CLI. Prefer over WebFetch when you need the article itself - it strips navigation, ads, comments and recommendation lists, and has site rules for WeChat 公众号 (mp.weixin.qq.com), 微博, 小红书, X/Twitter and 知识星球 (wx.zsxq.com). Use --browser for JS-rendered pages.
+description: Extract clean Markdown (title, author, publish date, body) from a web page with the web-extract CLI. Prefer over WebFetch when you need the article itself - it strips navigation, ads, comments and recommendation lists, and has site rules for WeChat 公众号 (mp.weixin.qq.com), 微博, 小红书, X/Twitter, 知识星球 (wx.zsxq.com) and GitHub Gist. Use --browser for JS-rendered pages.
 ---
 
 # web-extract
@@ -40,7 +40,7 @@ web-extract parse <url> -p domain
 
 | 站点 | 参数 |
 |------|------|
-| 普通博客、新闻、文档站 | 不用加 |
+| 普通博客、新闻、文档站、GitHub Gist | 不用加 |
 | X / Twitter、微博 | `--browser` |
 | 微信公众号 | `--wx --browser` |
 | 小红书、知识星球 | 要登录态：`--attach`（见下） |

@@ -461,6 +461,15 @@ test('作者只剩一个地址时宁可留空，不拿地址充数', () => {
 	assert.equal(extractArticle(document, 'https://example.com/post').author, '');
 });
 
+test('article:author 是一串数字 id 时不当作者名，往下找页面上的作者', () => {
+	// GitHub 整站的 article:author 都是它自己 Facebook 主页的 id
+	const { document } = parseHTML(`<html><head>
+		<meta property="article:author" content="262588213843476">
+	</head><body><h1><span class="author"><a href="/rohitg00">rohitg00</a></span></h1>
+		<article><p>${'正文。'.repeat(80)}</p></article></body></html>`);
+	assert.equal(extractArticle(document, 'https://github.com/rohitg00/repo').author, 'rohitg00');
+});
+
 test('正文里的相对地址补成绝对地址；锚点、带协议的地址不动', () => {
 	const { document } = parseHTML(`<html><head><base href="/blog/"></head><body><article>
 		<p>${'正文。'.repeat(80)}

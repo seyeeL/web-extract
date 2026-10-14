@@ -2,7 +2,7 @@
 
 提取网页正文，转成干净的 Markdown，同时给出标题、作者、发布时间。
 
-Extract the main content of a web page as clean Markdown, with title, author and publish date. Default rules that work on most article pages, plus hand-written site rules where they fall short: WeChat 公众号, 微博 (Weibo), 小红书 (Xiaohongshu), X/Twitter and 知识星球 (zsxq).
+Extract the main content of a web page as clean Markdown, with title, author and publish date. Default rules that work on most article pages, plus hand-written site rules where they fall short: WeChat 公众号, 微博 (Weibo), 小红书 (Xiaohongshu), X/Twitter, 知识星球 (zsxq) and GitHub Gist.
 
 一份代码三种用法：
 
@@ -146,6 +146,7 @@ Claude Code 里当插件装：
 | 小红书 | 正文分段靠 `\n`；发布时间从 `__INITIAL_STATE__` 取；要登录态 |
 | X / Twitter | 按 URL 框出主推；引用推文、回复排成引用段；视频留封面；日期从推文 id 算 |
 | 知识星球 | 独立详情页和主页详情浮层都只收那一条主题；正文分段靠 `\n`；要登录态 |
+| GitHub Gist | 多文件都收，不带页头和评论；时间是创建时间（页头那个是「Last active」） |
 
 每个站点怎么取、实测过哪些页面、踩过什么坑、怎么加新站点：**[docs/sites.md](docs/sites.md)**。
 
