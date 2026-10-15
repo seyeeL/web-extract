@@ -6,6 +6,8 @@
 import { parseHTML } from 'linkedom';
 import { dumpCandidates } from './dump.js';
 import { extractDocument } from './result.js';
+import { snapshotDocument } from './snapshot.js';
+import { buildStyledHtml } from './styled.js';
 
 export const DEFAULT_UA =
 	'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -136,4 +138,22 @@ export function dumpHtml(html) {
 export async function extractUrl(url, options = {}) {
 	const page = await fetchHtml(url, options);
 	return extractHtml(page.html, page.url, options);
+}
+
+/**
+ * HTML 字符串 → 带样式的单文件 HTML（正文 + 原站样式，裁掉没用到的 CSS）。
+ * 样式表要联网抓，所以是异步的。
+ * @param {{withReplies?: boolean, userAgent?: string, timeoutMs?: number,
+ *   assetsDir?: string, assetsHref?: string}} [options] 见 buildStyledHtml
+ * @returns {Promise<{html: string, warnings: string[], stats: object}>}
+ */
+export async function styledHtml(html, url = '', options = {}) {
+	const snap = snapshotDocument(parseDocument(html), url, options);
+	return buildStyledHtml(snap, options);
+}
+
+/** URL → 带样式的单文件 HTML，静态抓取。 */
+export async function styledUrl(url, options = {}) {
+	const page = await fetchHtml(url, options);
+	return styledHtml(page.html, page.url, options);
 }

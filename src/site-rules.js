@@ -514,6 +514,159 @@ export function gistCreatedAt(doc, now = new Date()) {
 	return earliest === null ? '' : new Date(earliest).toISOString().slice(0, 16).replace('T', ' ');
 }
 
+// 豆瓣广播配图的第二段是尺寸档：转发卡片里给 small（九宫格裁成 180×240），详情页给 l。
+// raw 是原图，有的十几 MB，l 已经是 1000 多像素宽，够看
+const DOUBAN_STATUS_THUMB = /^\/view\/status\/(small|s|m|thumb|normal)\//;
+
+/** 豆瓣广播缩略图换成 l 档。不是豆瓣广播配图的原样返回（头像 /icon/ 不动）。 */
+export function upgradeDoubanImage(src) {
+	const raw = String(src ?? '').trim();
+	let url;
+	try {
+		url = new URL(raw);
+	} catch {
+		return raw;
+	}
+	if (!/(^|\.)doubanio\.com$/.test(url.hostname) || !DOUBAN_STATUS_THUMB.test(url.pathname)) return raw;
+	url.pathname = url.pathname.replace(DOUBAN_STATUS_THUMB, '/view/status/l/');
+	return url.toString();
+}
+
+// 被转发的原广播正文搬进引用段之后挂的类名，keepLineBreaks 靠它认
+const DOUBAN_TEXT_CLASS = 'douban-status-text';
+
+/** 豆瓣广播的规范地址：去掉 ?_spm_id= 这类统计参数。 */
+function doubanStatusUrl(raw) {
+	try {
+		const url = new URL(raw);
+		url.search = '';
+		url.hash = '';
+		return url.toString();
+	} catch {
+		return raw;
+	}
+}
+
+/**
+ * 豆瓣广播的配图是脚本画出来的：HTML 里只有一段 `var photos = [...]`，浏览器跑完脚本才
+ * 有 `<img>`。静态抓取时拿 JSON 自己造出图来；已经渲染过的（--browser / --attach）不动。
+ */
+function doubanPhotos(clone) {
+	const doc = clone.ownerDocument;
+	if (!doc) return;
+	const boxes = clone.matches?.('.attachments-saying')
+		? [clone]
+		: Array.from(clone.querySelectorAll('.attachments-saying'));
+	for (const box of boxes) {
+		if (box.querySelector('img')) continue;
+		for (const script of Array.from(box.querySelectorAll('script'))) {
+			const match = (script.textContent || '').match(/var photos\s*=\s*(\[[\s\S]*?\]);/);
+			if (!match) continue;
+			let photos = [];
+			try {
+				photos = JSON.parse(match[1]);
+			} catch {
+				continue;
+			}
+			for (const photo of Array.isArray(photos) ? photos : []) {
+				const src = photo?.image?.large?.url || photo?.image?.normal?.url;
+				if (typeof src !== 'string' || !/^https?:\/\//.test(src)) continue;
+				const img = doc.createElement('img');
+				img.setAttribute('src', src);
+				img.setAttribute('alt', '');
+				const para = doc.createElement('p');
+				para.appendChild(img);
+				box.appendChild(para);
+			}
+		}
+	}
+}
+
+/**
+ * 被转发的那条原广播，排成「**作者** · [时间](链接)」+ 正文 + 配图，和推特引用推文同一种版式。
+ * 整块收的话头像、「说：」、回应数、转发按钮、「我来回应」都会进来。
+ */
+function formatDoubanReshared(doc, el) {
+	const parts = [];
+	const meta = doc.createElement('p');
+	const name = (el.querySelector('.lnk-people')?.textContent ?? '').replace(/\s+/g, ' ').trim();
+	const stamp = el.querySelector('.created_at');
+	const time = (stamp?.getAttribute('title') || stamp?.textContent || '').trim();
+	const href = el.getAttribute('data-status-url') || stamp?.querySelector('a')?.getAttribute('href') || '';
+	if (name) {
+		const strong = doc.createElement('strong');
+		strong.appendChild(doc.createTextNode(name));
+		meta.appendChild(strong);
+	}
+	if (time) {
+		if (name) meta.appendChild(doc.createTextNode(' · '));
+		if (href) {
+			const link = doc.createElement('a');
+			link.setAttribute('href', doubanStatusUrl(href));
+			link.appendChild(doc.createTextNode(time));
+			meta.appendChild(link);
+		} else {
+			meta.appendChild(doc.createTextNode(time));
+		}
+	}
+	if (meta.childNodes.length) parts.push(meta);
+	// 正文和配图拆开各自成段：整块 .status-saying 搬进来，外面几层 div 之间的空白会在
+	// 引用段里变成一串空的 >
+	const saying = el.querySelector('.status-saying');
+	const text = saying?.querySelector('blockquote') ?? null;
+	if (text) {
+		const paras = Array.from(text.children).filter((child) => child.nodeName === 'P');
+		if (paras.length) {
+			for (const p of paras) parts.push(p.cloneNode(true));
+		} else {
+			const para = doc.createElement('p');
+			for (const node of Array.from(text.childNodes)) para.appendChild(node.cloneNode(true));
+			parts.push(para);
+		}
+		// 搬出来之后不在 .status-saying 底下了，挂个类名让 keepLineBreaks 还认得出来
+		for (const part of parts.slice(meta.childNodes.length ? 1 : 0)) part.setAttribute('class', DOUBAN_TEXT_CLASS);
+	}
+	for (const img of Array.from(saying?.querySelectorAll('img') ?? [])) {
+		const para = doc.createElement('p');
+		para.appendChild(img.cloneNode(true));
+		parts.push(para);
+	}
+	return parts.length > (meta.childNodes.length ? 1 : 0) ? parts : null;
+}
+
+/**
+ * 广播底下的回应。只有浏览器跑过脚本才有（静态 HTML 里 #comments 是空的），也只有第一页。
+ * 一条一段引用：「**昵称** · 时间」+ 回应内容。
+ */
+function doubanComments(doc) {
+	const blocks = [];
+	for (const item of Array.from(doc.querySelectorAll('#comments .comment-item'))) {
+		const content = item.querySelector('.comment-content');
+		if (!content || !(content.textContent ?? '').trim()) continue;
+		const quote = doc.createElement('blockquote');
+		const meta = doc.createElement('p');
+		const name = (item.querySelector('.meta-header a')?.textContent ?? '').replace(/\s+/g, ' ').trim();
+		const time = item.querySelector('.meta-header time');
+		const when = (time?.getAttribute('datetime') || time?.textContent || '').trim();
+		if (name) {
+			const strong = doc.createElement('strong');
+			strong.appendChild(doc.createTextNode(name));
+			meta.appendChild(strong);
+		}
+		if (when) meta.appendChild(doc.createTextNode(`${name ? ' · ' : ''}${when}`));
+		if (meta.childNodes.length) quote.appendChild(meta);
+		// .markdown 上挂着 font-size: 0 的行内样式（页面靠别处的 CSS 撑回来），不带它
+		for (const child of Array.from(content.querySelector('.markdown')?.childNodes ?? content.childNodes)) {
+			quote.appendChild(child.cloneNode(true));
+		}
+		blocks.push(quote);
+	}
+	if (!blocks.length) return [];
+	const heading = doc.createElement('h2');
+	heading.appendChild(doc.createTextNode('回应'));
+	return [heading, ...blocks];
+}
+
 export const SITE_RULES = [
 	{
 		name: '微信公众号',
@@ -757,20 +910,77 @@ export const SITE_RULES = [
 		// 页面上没有 published_time，唯一的 <relative-time> 是「Last active」
 		publishedFrom: (doc) => gistCreatedAt(doc),
 	},
+	{
+		name: '豆瓣广播',
+		hosts: ['douban.com'],
+		// 只管广播详情页。豆瓣上还有小组帖子、日记、影评，那些有自己的标题，
+		// 套上 titleFromBody 会把标题换成正文开头
+		paths: [/^\/people\/[^/]+\/status\/\d+/],
+		// 分享链接带 ?_dtcc=1&_i=… 这类统计参数，每次打开还会换一串
+		normalizeUrl: doubanStatusUrl,
+		// 页面上第一条 .new-status 就是这条广播；侧栏和「赞 / 转发」名单都在它外面
+		scope: (doc) => doc.querySelector('.new-status.from-detail') ?? doc.querySelector('.new-status'),
+		replies: doubanComments,
+		// 三块按页面顺序拼：转发时自己写的那句话、自己这条的正文（普通广播）、被转发的原广播。
+		// 转发型的 .bd 是空的，普通广播没有 .reshared_hd 和 .status-real-wrapper，三条自然互斥。
+		// 原广播里也有 .mod > .bd，用 :not 排掉，不然它的正文会单独再收一遍
+		root: [
+			'.reshared_hd .text',
+			'.mod > .bd:not(.status-real-wrapper *)',
+			'.status-real-wrapper',
+		],
+		author: '.lnk-people',
+		published: '.pubtime',
+		// 广播没有标题，页面标题只是「某某的广播」。包成「某某的广播：正文开头」
+		titleFromBody: true,
+		titleLength: 30,
+		titleFormat: ({ body, author }) => (author ? `${author}的广播：${body}` : body),
+		// 配图在静态 HTML 里只是一段脚本里的 JSON
+		prepare: doubanPhotos,
+		drop: [
+			// 头像
+			'.usr-pic',
+			// 转发者自己的昵称和时间（作者、时间另有字段）。原广播里的昵称留给 formatQuote 用
+			'.lnk-people:not(.status-real-wrapper *)',
+			'.pub-meta',
+			// 「...(展开)」：正文在 DOM 里是全的，只是 CSS 截断了
+			'.quote-expand',
+			// 配图右上角「查看大图」的空链接
+			'.img-type',
+		],
+		// 「说：」「转发：」夹在昵称后面
+		stripText: [/^\s*(?:说|转发)：\s*$/],
+		blockquote: ['.status-real-wrapper'],
+		formatQuote: formatDoubanReshared,
+		// 正文本来套在 <blockquote> 里（页面上是左边一道竖线），转成 markdown 会整篇变引用段。
+		// 转发时那句话同理
+		unwrap: ['.status-saying > blockquote', '.text > blockquote'],
+		// 正文的分段是 <p> 里的 \n 加 CSS white-space，HTML 里没有 <br>。只点名 <p>：
+		// 外面几层元素之间的换行只是排版空白，换成 <br> 会多出一串空行
+		keepLineBreaks: ['.status-saying p', `.${DOUBAN_TEXT_CLASS}`],
+		rewriteImageSrc: upgradeDoubanImage,
+	},
 ];
 
-/** 命中的规则，没有就返回 null。子域自动继承（m.weibo.cn 命中 weibo.cn）。 */
+/**
+ * 命中的规则，没有就返回 null。子域自动继承（m.weibo.cn 命中 weibo.cn）。
+ * 规则写了 paths 的还要路径对得上（同一个域名下只管某一种页面）。
+ */
 export function ruleFor(url) {
 	let host;
+	let path;
 	try {
-		host = new URL(String(url)).hostname.toLowerCase();
+		const parsed = new URL(String(url));
+		host = parsed.hostname.toLowerCase();
+		path = parsed.pathname;
 	} catch {
 		return null;
 	}
 	if (!host) return null;
 	return (
 		SITE_RULES.find((rule) =>
-			rule.hosts.some((h) => host === h || host.endsWith(`.${h}`)),
+			rule.hosts.some((h) => host === h || host.endsWith(`.${h}`)) &&
+			(!rule.paths || rule.paths.some((re) => re.test(path))),
 		) ?? null
 	);
 }

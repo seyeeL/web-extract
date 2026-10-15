@@ -2,7 +2,7 @@
 
 提取网页正文，转成干净的 Markdown，同时给出标题、作者、发布时间。
 
-Extract the main content of a web page as clean Markdown, with title, author and publish date. Default rules that work on most article pages, plus hand-written site rules where they fall short: WeChat 公众号, 微博 (Weibo), 小红书 (Xiaohongshu), X/Twitter, 知识星球 (zsxq) and GitHub Gist.
+Extract the main content of a web page as clean Markdown, with title, author and publish date. Default rules that work on most article pages, plus hand-written site rules where they fall short: WeChat 公众号, 微博 (Weibo), 小红书 (Xiaohongshu), X/Twitter, 知识星球 (zsxq), GitHub Gist and 豆瓣广播 (Douban statuses). `--html` saves the content with the site's own styles as a single small HTML file.
 
 一份代码三种用法：
 
@@ -31,6 +31,7 @@ web-extract parse <url> --md              # Markdown
 web-extract parse <url> --json            # 元信息 + markdown + html
 web-extract parse <url> -p title          # 单个字段
 web-extract parse <url> --md -o out.md    # 写文件
+web-extract parse <url> --html -o out.html  # 带原站样式的单文件 HTML（见下）
 web-extract parse <url>                   # 清洗后的正文 HTML
 ```
 
@@ -70,6 +71,19 @@ web-extract parse "<url>" --attach --md
 
 正文不到 100 个字符时 stderr 会提示下一步怎么办（换 `--browser`、换 `--attach`，或者告诉你被跳到了哪个落地页），stdout 照常输出。
 
+### 带样式的 HTML
+
+`--html` 存一个能单独打开的 HTML：正文 + 原站样式，导航侧栏广告都不要。站点 CSS 只留正文用到的那部分
+（几百 KB 的样式表一般裁到几 KB），图片不转 base64，留远程地址：
+
+```bash
+web-extract parse <url> --html -o page.html
+web-extract parse <url> --browser --html -o page.html --assets page_files   # 图片也存下来
+```
+
+豆瓣、微博这类有防盗链的站点，离开原站图片打不开，加 `--assets <目录>` 把图片下载到 HTML 旁边，
+用相对路径引用。体积和抓不到的样式表报在 stderr。怎么裁、实测体积、边界：**[docs/styled-html.md](docs/styled-html.md)**。
+
 其它参数：
 
 | 参数 | 作用 |
@@ -100,10 +114,13 @@ const markdown = htmlToMarkdown(article.root);
 Node 里：
 
 ```js
-import { extractHtml, extractUrl } from 'web-extract/node';
+import { extractHtml, extractUrl, styledHtml } from 'web-extract/node';
 
 const fromHtml = extractHtml(html, 'https://example.com/post');
 const fromUrl = await extractUrl('https://example.com/post', { plain: false });
+
+// 带样式的单文件 HTML（要联网抓样式表，所以是异步的）
+const { html: page, warnings, stats } = await styledHtml(html, 'https://example.com/post');
 ```
 
 浏览器渲染：
@@ -116,7 +133,7 @@ const result = await extractUrlInBrowser('https://x.com/u/status/123');
 
 ### 给下游复制文件时
 
-浏览器模式会把 `src/site-rules.js`、`html2md.js`、`extract.js`、`result.js`、`dump.js` 去掉 import / export 拼成一段脚本注进页面，所以这几个文件的 import **只能写单行**，顶层名字不能互相重名（`tests/cli.test.mjs` 里有用例守着）。
+浏览器模式会把 `src/site-rules.js`、`html2md.js`、`extract.js`、`snapshot.js`、`result.js`、`dump.js` 去掉 import / export 拼成一段脚本注进页面，所以这几个文件的 import **只能写单行**，顶层名字不能互相重名（`tests/cli.test.mjs` 里有用例守着）。
 
 扩展这类没有打包工具的下游可以直接复制 `src/extract.js`、`src/html2md.js`、`src/site-rules.js` 三个文件用。复制过去别在下游改，改这里再同步。
 
@@ -147,6 +164,7 @@ Claude Code 里当插件装：
 | X / Twitter | 按 URL 框出主推；引用推文、回复排成引用段；视频留封面；日期从推文 id 算 |
 | 知识星球 | 独立详情页和主页详情浮层都只收那一条主题；正文分段靠 `\n`；要登录态 |
 | GitHub Gist | 多文件都收，不带页头和评论；时间是创建时间（页头那个是「Last active」） |
+| 豆瓣广播 | 只管广播详情页；配图从脚本里的 JSON 造出来；转发的原广播排成引用段；回应要 `--browser` |
 
 每个站点怎么取、实测过哪些页面、踩过什么坑、怎么加新站点：**[docs/sites.md](docs/sites.md)**。
 

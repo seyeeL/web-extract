@@ -16,6 +16,8 @@ web-extract 走默认规则提取正文，大部分文章页不用配置就能�
 5. **[知识星球](#知识星球)** `wx.zsxq.com`：主题正文、配图、作者、时间全部通过，独立详情页和星球主页上的
    详情浮层两种入口都行；**要登录态**。
 6. **[GitHub Gist](#github-gist)** `gist.github.com`：正文（多文件都收）、作者、创建时间全部通过，静态抓取就行。
+7. **[豆瓣广播](#豆瓣广播)** `www.douban.com/people/…/status/…`：正文、配图、作者、时间、转发的原广播全部通过，
+   静态抓取就行；回应要 `--browser`。
 
 > 不在这张清单上的站点走[默认规则](#验证过但不需要专用规则的站点)，不用配置也能抓。
 > 想加新站点看[加一个新站点](#加一个新站点)。
@@ -431,6 +433,45 @@ UTC 07:19 加八小时正好）。老版页面有 `<time datetime>` 就直接用
 **代码文件转出来是一张表**：GitHub 把代码按行渲染成「行号 | 代码」的表格，转成 Markdown 就是一张两列表，
 不是代码块。默认规则就是这样，加这条规则前后没变；要改得给规则加个把表格换成 `<pre>` 的钩子，还没做。
 
+### 豆瓣广播
+
+`www.douban.com/people/<用户>/status/<广播 id>/`（规则写了 `paths`，豆瓣别的页面不套）
+
+| 项 | 取法 |
+|----|------|
+| 范围 | 页面上第一条 `.new-status`（`scope`）：侧栏的「赞 / 转发」名单、头部导航都在它外面 |
+| 正文 | 普通广播 `.mod > .bd`；转发型是 `.reshared_hd .text`（转发时写的那句话）+ `.status-real-wrapper`（原广播） |
+| 分段 | 正文 `<p>` 里靠 `\n` + CSS（`keepLineBreaks`） |
+| 配图 | 静态 HTML 里只有一段 `var photos = [...]`，`prepare` 拿 JSON 造 `<img>`；渲染过的页面直接用 `<img>` |
+| 作者 / 时间 | `.lnk-people` / `.pubtime`（`2021-12-06 22:36:04`，原样给出） |
+| 标题 | 页面标题只有「某某的广播」：`某某的广播：正文开头 30 字…` |
+| 原广播 | 重排成「**作者** · [时间](链接)」+ 正文 + 配图，套成引用段（`blockquote` + `formatQuote`），和推特引用推文一个版式 |
+| 回应 | `#comments .comment-item`，脚本加载的，`--browser` / `--attach` 才有，只有第一页 |
+| 地址 | 分享链接带 `?_dtcc=1&_i=…`，每次打开还换一串，`normalizeUrl` 去掉 |
+
+实测 2026-10-15，未登录：
+
+| 版式 | 样例 | 结果 |
+|------|------|------|
+| 普通广播 + 1 张图 | [王逅逅：research skills](https://www.douban.com/people/gogotroy/status/3679192024/) | 正文 12 段、1 张图；`--browser` 多出 5 条回应 |
+| 转发 | [Isa🌸 转发](https://www.douban.com/people/190081998/status/3680424413/) | 转发的那句话 + 原广播引用段（带图） |
+
+修之前走默认规则：头像、「说：」、`回应 / 转发 / 赞 / 收藏` 那排链接、侧栏的赞和转发名单（一串头像）全进了正文，
+正文十几行挤成一段，配图没有（静态 HTML 里是脚本），标题只有「王逅逅的广播」，作者和时间都是空的。
+
+几个坑：
+
+| 坑 | 表现 | 规则 |
+|----|------|------|
+| 正文套在 `<blockquote>` 里 | 页面上是左边一道竖线，转成 markdown 整篇变引用段 | `unwrap: ['.status-saying > blockquote', '.text > blockquote']` |
+| 配图是脚本画的 | 静态 HTML 里没有 `<img>` | 新增的规则钩子 `prepare`：清洗前先把 JSON 补成 `<img>`（下一步就要删 `<script>`） |
+| 转发卡片里是缩略图 | `view/status/small/…` 是 180×240 的裁切图 | `upgradeDoubanImage` 换成 `l` 档（1000 多像素宽）；`raw` 是原图，有的十几 MB，不用 |
+| 「...(展开)」 | 转发卡片里原广播被 CSS 截断，DOM 里正文是全的 | `drop: ['.quote-expand']` |
+| 图片防盗链 | `img*.doubanio.com` 不带 Referer 回 418，带别的站的 Referer 回 403，浏览器里设成 no-referrer 也打不开 | 提取本身不受影响；`--html` 存图要 `--assets`（带豆瓣的 Referer 去下载，实测 200） |
+
+页面上没写类型标的广播（书影音推荐卡片、链接卡片）还没遇到样例，`.bd` 整块收，卡片会原样进来，
+遇到了再补。
+
 ## 验证过但不需要专用规则的站点
 
 默认规则直接能用，没写站点规则：
@@ -473,6 +514,8 @@ UTC 07:19 加八小时正好）。老版页面有 `<time datetime>` 就直接用
    {
      name: '站点名',
      hosts: ['example.com'],        // 子域自动继承
+     paths: [/^\/p\/\d+/],           // 同一个域名下只管某一种页面时写（按 pathname 匹配）
+     normalizeUrl: (url) => url,    // 去掉分享链接上的统计参数
      root: '.article-body',         // 也可以传一组选择器
      author: '.byline',
      published: 'time.published',
@@ -497,8 +540,12 @@ UTC 07:19 加八小时正好）。老版页面有 `<time datetime>` 就直接用
      stripText: [/\[eoi\]/g],        // 按文本抹掉图标占位这类脏字符
      keep: ['.short-body'],         // 短正文顶着 share / footer 这类弱证据词时豁免
      keepLineBreaks: ['.desc'],     // 正文分段靠 \n + CSS 时才开
+     prepare: (clone) => {},        // 清洗前在克隆体上补节点（脚本画出来的内容）
    }
    ```
+
+   `prepare` 拿到正文的克隆体，在删 `<script>` 之前跑：页面靠脚本画出来的内容（豆瓣广播的配图在
+   HTML 里只是一段 JSON）在这里补成真节点。抛错就当没补，不拖垮整次提取。
 
    `scope` 返回一个元素，`root` / `title` / `author` / `published` 的选择器就都只在这块里找；
    返回 null 退回整篇文档。推特详情页上主推、上文、回复是一排同构的 `<article>`，靠选择器

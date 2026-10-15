@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "提取网页正文转成干净的 Markdown：默认规则 + 站点规则（公众号、微博、小红书、X、知识星球、Gist），附带 CLI 和 Agent Skill",
+  "description": "提取网页正文转成干净的 Markdown 或带原站样式的单文件 HTML：默认规则 + 站点规则（公众号、微博、小红书、X、知识星球、Gist、豆瓣广播），附带 CLI 和 Agent Skill",
   "license": "PolyForm-Noncommercial-1.0.0",
   "repository": {
     "type": "git",

@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { main } from '../bin/web-extract.mjs';
-import { dumpExpression, extractExpression, pageBundle } from '../src/browser.js';
+import { dumpExpression, extractExpression, pageBundle, snapshotExpression } from '../src/browser.js';
+import { snapshotDocument } from '../src/snapshot.js';
 import { decodeHtml, extractHtml, fetchHtml, parseDocument } from '../src/node.js';
 
 const ARTICLE = `<!doctype html><html><head>
@@ -56,9 +57,15 @@ test('注入页面用的拼接脚本能直接执行，结果和 Node 侧一致',
 	const viaBundle = inPage(parseDocument(ARTICLE), { href: url });
 	assert.deepEqual(viaBundle, extractHtml(ARTICLE, url, { withReplies: true }));
 
+	// 带样式 HTML 的材料也走这段拼接脚本
+	const snapInPage = new Function('document', 'location', `${pageBundle()}
+		return snapshotDocument(document, location.href, {});`);
+	assert.deepEqual(snapInPage(parseDocument(ARTICLE), { href: url }), snapshotDocument(parseDocument(ARTICLE), url));
+
 	// 表达式本身也得是合法 JS
 	assert.doesNotThrow(() => new Function(`return ${extractExpression({ plain: true })}`));
 	assert.doesNotThrow(() => new Function(`return ${dumpExpression()}`));
+	assert.doesNotThrow(() => new Function(`return ${snapshotExpression({ withReplies: true })}`));
 });
 
 test('提取结果：元信息、markdown、噪声过滤', () => {
@@ -194,4 +201,50 @@ test('CLI：用法错误退出码 2，运行错误退出码 1，正文太短提�
 
 	assert.match((await cli(['--help'])).out, /web-extract parse/);
 	assert.match((await cli(['-v'])).out, /^\d+\.\d+\.\d+\n$/);
+});
+
+test('CLI：--html 输出单文件 HTML，体积走 stderr；--assets 的相对路径从输出文件所在目录算', async () => {
+	// 图片和样式表都从本机起的服务拿，不出网
+	const server = createServer((req, res) => {
+		if (req.url === '/a.css') {
+			res.writeHead(200, { 'content-type': 'text/css' });
+			res.end('article p{color:#222}.unused{color:red}');
+		} else if (req.url === '/pic.png') {
+			res.writeHead(200, { 'content-type': 'image/png' });
+			res.end('png');
+		} else {
+			res.writeHead(404);
+			res.end();
+		}
+	});
+	await new Promise((r) => server.listen(0, '127.0.0.1', r));
+	const base = `http://127.0.0.1:${server.address().port}`;
+	try {
+		await withTempDir(async (dir) => {
+			const file = join(dir, 'page.html');
+			writeFileSync(file, ARTICLE
+				.replace('</head>', '<link rel="stylesheet" href="/a.css"></head>')
+				.replace('<ul>', '<p><img src="/pic.png"></p><ul>'));
+			const url = `${base}/post/1`;
+
+			const plain = await cli(['parse', file, '--html', '--url', url]);
+			assert.equal(plain.code, 0);
+			assert.match(plain.out, /^<!DOCTYPE html>/);
+			assert.match(plain.out, /article p\{color:#222\}/);
+			assert.doesNotMatch(plain.out, /\.unused/);
+			assert.match(plain.out, new RegExp(`<img src="${base}/pic.png">`));
+			assert.match(plain.err, /HTML [\d.]+ KB（样式 [\d.]+ KB 裁到 [\d.]+ KB）/);
+
+			const out = join(dir, 'out', 'page.html');
+			const saved = await cli(['parse', file, '--html', '--url', url, '-o', out, '--assets', join(dir, 'out', 'page_files')]);
+			assert.equal(saved.code, 0);
+			assert.match(readFileSync(out, 'utf8'), /<img src="page_files\/[0-9a-f]{16}\.png">/);
+			assert.match(saved.err, /存下 1 张图/);
+		});
+	} finally {
+		server.close();
+	}
+
+	assert.equal((await cli(['parse', 'x.html', '--assets', 'd'])).code, 2, '--assets 要配 --html');
+	assert.equal((await cli(['parse', 'x.html', '--html', '--md'])).code, 2);
 });

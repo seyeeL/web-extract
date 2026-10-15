@@ -7,10 +7,13 @@
 import { ruleFor } from './site-rules.js';
 
 // 整棵删掉的标签
-const JUNK_TAGS = [
+const JUNK_TAG_LIST = [
 	'script', 'style', 'noscript', 'iframe', 'form', 'button', 'input',
 	'select', 'textarea', 'svg', 'canvas', 'object', 'embed', 'template',
-].join(',');
+];
+const JUNK_TAGS = JUNK_TAG_LIST.join(',');
+// 带样式的 HTML 留着 <svg>：图标、插图是页面长相的一部分，转 markdown 时才没用
+const STYLED_JUNK_TAGS = JUNK_TAG_LIST.filter((tag) => tag !== 'svg').join(',');
 
 // 命中这些词的容器不可能是正文，文字再多也删
 const ALWAYS_JUNK = /(^|[\s_-])(comments?|related|recommend|sidebar|advert|ads?|banner|newsletter|subscribe|signup|paywall|pagination|breadcrumb)([\s_-]|$)/i;
@@ -295,11 +298,22 @@ export function dropNested(elements) {
 	return unique.filter((el) => !unique.some((other) => other !== el && other.contains?.(el)));
 }
 
+/** 几个元素在页面上最近的共同祖先。拼出来的容器在页面上没有位置，带样式的 HTML 拿它定位。 */
+function commonAncestor(elements) {
+	const [first, ...rest] = elements;
+	let node = first?.parentElement ?? null;
+	while (node && !rest.every((el) => node.contains?.(el))) node = node.parentElement;
+	return node;
+}
+
 /**
  * 站点规则指定的正文容器。规则写了就是明确断言「正文在这」，不再打分。
  * root 可以是一组选择器：命中的块按顺序拼成一个容器交给下游。
+ *
+ * 返回 { root, anchor, wrapped }：anchor 是 root 在页面上的位置（页面上的真节点），
+ * 带样式的 HTML 按它把祖先骨架搭回去。
  */
-function pickRuleRoot(scope, doc, rule, extras = []) {
+function pickRuleParts(scope, doc, rule, extras = []) {
 	if (!rule?.root) return null;
 	const selectors = Array.isArray(rule.root) ? rule.root : [rule.root];
 	const matched = [];
@@ -314,7 +328,7 @@ function pickRuleRoot(scope, doc, rule, extras = []) {
 	// 已经在正文里的不再补一遍（回复正好落在 root 命中的块里时）
 	const tail = dropNested(extras.filter((el) => el && !roots.some((r) => r.contains?.(el))));
 	if (!roots.length && !tail.length) return null;
-	if (roots.length === 1 && !tail.length) return roots[0];
+	if (roots.length === 1 && !tail.length) return { root: roots[0], anchor: roots[0] };
 
 	const wrapper = doc.createElement('div');
 	for (const el of roots) wrapper.appendChild(el.cloneNode(true));
@@ -323,7 +337,9 @@ function pickRuleRoot(scope, doc, rule, extras = []) {
 		wrapper.appendChild(doc.createElement('hr'));
 		for (const el of tail) wrapper.appendChild(el.cloneNode(true));
 	}
-	return wrapper;
+	// 回复是合成的节点，不在页面上，定位只看正文那几块
+	const live = roots.filter((el) => el.parentElement);
+	return { root: wrapper, anchor: live.length ? commonAncestor(live) : null, wrapped: true };
 }
 
 /** 找正文容器：先试语义选择器，不达标就从每个 <p> 往上三层收候选来打分。 */
@@ -542,18 +558,29 @@ function baseUrlFor(doc, href) {
 }
 
 /** 在克隆体上删噪声，绝不改用户正在看的页面。 */
-function cleanClone(root, rule, baseUrl = '') {
+function cleanClone(root, rule, baseUrl = '', { styled = false } = {}) {
 	const clone = root.cloneNode(true);
+
+	// 页面靠脚本画出来的内容（豆瓣广播的配图只是一段 JSON），规则在这里补成真节点。
+	// 排在最前：下一步就要删 <script>
+	if (typeof rule?.prepare === 'function') {
+		try {
+			rule.prepare(clone);
+		} catch {
+			// 补不出来就当没有，别拖垮整次提取
+		}
+	}
 
 	// 放在删噪声之前：换出来的 <img> 也要过一遍后面的图片地址改写
 	if (rule?.videoPoster) videoPoster(clone);
 
-	for (const el of all(clone, JUNK_TAGS)) el.remove();
+	for (const el of all(clone, styled ? STYLED_JUNK_TAGS : JUNK_TAGS)) el.remove();
 	// 站点规则里点名要删的（微博的表情图片之类）
 	for (const selector of rule?.drop ?? []) {
 		for (const el of all(clone, selector)) el.remove();
 	}
-	for (const el of all(clone, '[hidden],[aria-hidden="true"]')) el.remove();
+	// 图标 <svg> 几乎都挂着 aria-hidden（只给眼睛看，不给读屏器念），带样式的 HTML 要留着
+	for (const el of all(clone, styled ? '[hidden],[aria-hidden="true"]:not(svg)' : '[hidden],[aria-hidden="true"]')) el.remove();
 	dropInvisibleText(clone);
 	// 规则点名要「脱掉」的元素：里面的内容留下，标签本身丢掉。小红书的话题标签是
 	// <a href="/search_result?...">#刘亦菲</a>，直接转 markdown 会在正文里塞一串
@@ -622,9 +649,11 @@ export function dedupeImages(clone) {
 }
 
 /**
- * @param {{withReplies?: boolean}} [options] withReplies：站点规则支持的话，把主贴
- *   底下的回复（推特的串和评论）接在正文后面
- * @returns {{url, title, author, publishedAt, siteName, root}} root 是已清洗的克隆节点
+ * @param {{withReplies?: boolean, styled?: boolean}} [options] withReplies：站点规则支持的话，
+ *   把主贴底下的回复（推特的串和评论）接在正文后面。styled：给带样式的 HTML 用，留着 <svg>
+ * @returns {{url, title, author, publishedAt, siteName, root, anchor, wrapped}} root 是已清洗的
+ *   克隆节点；anchor 是它在页面上对应的真节点（wrapped 为真时是几块正文的共同祖先，
+ *   root 是拼出来的容器、该放进 anchor 里面），定位不出来是 null
  */
 export function extractArticle(doc, url = '', options = {}) {
 	const sourceUrl = url || doc?.location?.href || '';
@@ -637,8 +666,12 @@ export function extractArticle(doc, url = '', options = {}) {
 	// 标题可能要从正文取（微博和小红书都没有独立标题），所以 root 先算。
 	// 取的是洗过的那份：不然小红书九宫格的「1/4」页码会跑到标题里
 	// root 选择器全落空时：框出来的那块本身就是「这条内容」，拿它兜底也比整页打分强
-	const root = pickRuleRoot(scope, doc, rule, replies) ?? (scope === doc ? pickRoot(doc) : scope);
-	const cleaned = root ? cleanClone(root, rule, baseUrlFor(doc, href)) : null;
+	const picked = pickRuleParts(scope, doc, rule, replies);
+	const root = picked?.root ?? (scope === doc ? pickRoot(doc) : scope);
+	const anchor = picked ? picked.anchor : root;
+	const cleaned = root
+		? cleanClone(root, rule, baseUrlFor(doc, href), { styled: options.styled === true })
+		: null;
 	// 作者排在标题前面：标题可能要把作者名包进去（推特的「沐阳 on X: …」）
 	const author = pickAuthor(scope, doc, rule, href);
 	return {
@@ -648,5 +681,7 @@ export function extractArticle(doc, url = '', options = {}) {
 		author,
 		publishedAt: pickPublished(scope, doc, rule, href),
 		root: cleaned,
+		anchor: anchor ?? null,
+		wrapped: picked?.wrapped === true,
 	};
 }

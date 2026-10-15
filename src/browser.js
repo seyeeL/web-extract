@@ -11,9 +11,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { buildStyledHtml } from './styled.js';
+
 const SRC = dirname(fileURLToPath(import.meta.url));
 // 拼进页面的顺序：被依赖的在前
-const PAGE_MODULES = ['site-rules.js', 'html2md.js', 'extract.js', 'result.js', 'dump.js'];
+const PAGE_MODULES = ['site-rules.js', 'html2md.js', 'extract.js', 'snapshot.js', 'result.js', 'dump.js'];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -33,6 +35,12 @@ export function pageBundle() {
 export function extractExpression(options = {}) {
 	const opts = JSON.stringify({ withReplies: options.withReplies === true, plain: options.plain === true });
 	return `(() => { ${pageBundle()}\n return JSON.stringify(extractDocument(document, location.href, ${opts})); })()`;
+}
+
+/** 在页面里收带样式 HTML 的材料（正文 + 骨架 + 样式表清单），返回 JSON 字符串。 */
+export function snapshotExpression(options = {}) {
+	const opts = JSON.stringify({ withReplies: options.withReplies === true });
+	return `(() => { ${pageBundle()}\n return JSON.stringify(snapshotDocument(document, location.href, ${opts})); })()`;
 }
 
 /** 在页面里跑诊断的表达式，返回 JSON 字符串。 */
@@ -235,6 +243,16 @@ export async function extractUrlInBrowser(url, options = {}) {
 	// attach 到的 tab 可能本身就停在报错页上
 	if (/^chrome-error:/.test(result.url)) throw new Error(`页面没加载成功（${result.title}）：${url}`);
 	return result;
+}
+
+/**
+ * URL → 带样式的单文件 HTML，在浏览器里渲染之后取材料，样式表回到 Node 里抓和裁。
+ * 页面里拿到的是渲染之后的 DOM：懒加载的图、CSS-in-JS 塞的样式都在。
+ */
+export async function styledUrlInBrowser(url, options = {}) {
+	const snap = JSON.parse(await evaluateInBrowser(url, snapshotExpression(options), options));
+	if (/^chrome-error:/.test(snap.url)) throw new Error(`页面没加载成功（${snap.title}）：${url}`);
+	return buildStyledHtml(snap, options);
 }
 
 /** URL → 正文候选容器列表，在浏览器里渲染之后诊断。 */

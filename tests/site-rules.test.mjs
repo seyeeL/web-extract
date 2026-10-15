@@ -8,6 +8,7 @@ import {
 	gistCreatedAt,
 	ruleFor,
 	timeFromStatusId,
+	upgradeDoubanImage,
 	upgradeSinaImage,
 	upgradeTwimgImage,
 } from '../src/site-rules.js';
@@ -750,4 +751,112 @@ test('gist 创建时间：今年的不写年份补今年，补完比现在晚就
 		'a.md content, created by u on 07:00AM on March 01, 2021.',
 	), now), '2021-03-01 07:00');
 	assert.equal(gistCreatedAt(doc('看不懂的 label'), now), '', '认不出就留空，交给默认规则');
+});
+
+// 豆瓣广播详情页，按 2026-10-15 实测页面裁的：静态 HTML 里配图只是一段脚本里的 JSON，
+// 正文 <p> 里靠 \n 分段，侧栏有赞和转发名单
+const doubanSaying = `<html><head><title>王逅逅的广播</title></head><body>
+<div id="content"><h1>王逅逅的广播</h1><div class="grid-16-8 clearfix"><div class="article">
+<div class="new-status status-wrapper from-detail saying" data-sid="3679192024">
+<div class="status-item" data-sid="3679192024"><div class="mod">
+<div class="hd" data-status-url="https://www.douban.com/people/44602874/status/3679192024/?_spm_id=NDQ">
+<div class="usr-pic"><a href="https://www.douban.com/people/gogotroy/"><img src="https://img3.doubanio.com/icon/up44602874-69.jpg" alt="王逅逅"></a></div>
+<div class="text"><a href="https://www.douban.com/people/gogotroy/" class="lnk-people">王逅逅</a>
+    说：
+  <div class="pub-meta"><span class="pubtime">2021-12-06 22:36:04</span><span class="pub-loc"></span></div></div>
+</div>
+<div class="bd sns"><div class="status-saying"><blockquote>
+<p>几年前，在我第一次创业的时候。
+何谓research skills？
+You have to MAKE yourself do research.</p>
+</blockquote>
+<div class="pics-wrapper"><div class="attachments-saying">
+<script>(function () { var photos = [{"image":{"is_animated":false,"large":{"url":"https://img3.doubanio.com\\/view\\/status\\/l\\/public\\/2b5a0eaefc3f853.jpg","width":1079,"height":1727},"normal":{"url":"https://img3.doubanio.com\\/view\\/status\\/small\\/public\\/2b5a0eaefc3f853.jpg"}}}]; })()</script>
+</div></div></div></div>
+</div></div></div>
+<div class="tabs" id="sep"><a href="?tab=comment#sep" class="on">回应</a><a href="?tab=reshare#sep">转发</a></div>
+<div id="comments" class="comment-list"></div>
+</div>
+<div class="aside"><h2>151人赞</h2><a href="https://www.douban.com/people/Donnern/"><img src="https://img3.doubanio.com/icon/up152437651-10.jpg"></a></div>
+</div></div></body></html>`;
+
+// 转发型：自己那句话在 .reshared_hd 里，原广播整块在 .status-real-wrapper（浏览器渲染过的，
+// 配图是 small 缩略图，后面跟着回应数、转发按钮、「我来回应」）
+const doubanReshare = `<html><body><div class="new-status status-wrapper status-reshared-wrapper from-detail saying" data-sid="3680424413">
+<div class="status-item"><div class="mod">
+<div class="hd reshared_hd"><div class="usr-pic"><a href="/people/190081998/"><img src="https://img9.doubanio.com/icon/up190081998-6.jpg"></a></div>
+<div class="text"><a href="https://www.douban.com/people/190081998/" class="lnk-people">Isa🌸</a>
+    转发：
+  <div class="pub-meta"><span class="pubtime">2021-12-07 23:12:58</span></div>
+    <blockquote>
+      在海量信息中找出有用信息。&nbsp;
+    </blockquote></div></div>
+<div class="bd "></div>
+</div></div>
+<div class="status-real-wrapper say" data-sid="3679192024" data-status-url="https://www.douban.com/people/44602874/status/3679192024/?_spm_id=NDQ">
+<div class="status-item"><div class="mod">
+<div class="hd"><div class="usr-pic"><a href="/people/gogotroy/"><img src="https://img3.doubanio.com/icon/up44602874-69.jpg"></a></div>
+<div class="text"><a href="https://www.douban.com/people/gogotroy/" class="lnk-people">王逅逅</a>
+    说：
+  </div></div>
+<div class="bd sns"><div class="status-saying"><blockquote class="quote-clamp"><p>几年前。
+何谓research skills？</p></blockquote><span class="quote-expand">...(展开)</span>
+<div class="pics-wrapper"><div class="attachments-saying"><div class="horizontal-photos normal"><div class="photo-item"><img src="https://img3.doubanio.com/view/status/small/public/2b5a0eaefc3f853.webp"></div></div></div></div></div>
+<div class="actions"><span class="created_at" title="2021-12-06 22:36:04"><a href="https://www.douban.com/people/44602874/status/3679192024/?_spm_id=NDQ">2021年12月6日</a></span>
+<a class="btn new-reply">5回应</a> <a class="btn btn-reshare">转发</a></div>
+<div class="others"><div class="comments"><span class="pl"><a href="/accounts/register">&gt; 我来回应</a></span></div></div>
+</div></div></div></div>
+<div id="comments" class="comment-list"><div class="comments-app-wrapper"><span class="comments-app-section-title">全部回复：</span>
+<div class="item comment-item"><div class="comment-item-body"><div class="author-avatar"><img src="https://img2.doubanio.com/icon/up4572875-11.jpg"></div>
+<div class="comment-main"><div class="meta-header"><a href="https://www.douban.com/people/4572875">吝啬猪不记得了</a><time datetime="2021-12-06 23:06:36">2021-12-06 23:06:36</time></div>
+<div class="comment-content"><div class="markdown" style="font-size: 0px;"><p>无比赞同</p>
+</div></div></div></div></div></div></div>
+</body></html>`;
+
+test('豆瓣广播：只管 /people/…/status/… 详情页，小组帖子、日记、影评不套', () => {
+	assert.equal(ruleFor('https://www.douban.com/people/gogotroy/status/3679192024/?_dtcc=1')?.name, '豆瓣广播');
+	assert.equal(ruleFor('https://www.douban.com/group/topic/123/'), null);
+	assert.equal(ruleFor('https://www.douban.com/note/123/'), null);
+	assert.equal(ruleFor('https://movie.douban.com/review/123/'), null);
+	assert.equal(ruleFor('https://www.douban.com/people/gogotroy/statuses'), null);
+});
+
+test('豆瓣广播：正文按 \\n 分段，配图从脚本里的 JSON 造出来，头像、「说：」、侧栏名单都不进来', () => {
+	const { document } = parseHTML(doubanSaying);
+	const article = extractArticle(document, 'https://www.douban.com/people/gogotroy/status/3679192024/?_dtcc=1&_i=19723407UHshH5');
+	assert.equal(article.url, 'https://www.douban.com/people/gogotroy/status/3679192024/', '统计参数去掉');
+	assert.equal(article.author, '王逅逅');
+	assert.equal(article.publishedAt, '2021-12-06 22:36:04');
+	assert.equal(article.title, '王逅逅的广播：几年前，在我第一次创业的时候。何谓research skil…');
+	const md = htmlToMarkdown(article.root);
+	assert.equal(
+		md,
+		'几年前，在我第一次创业的时候。  \n何谓research skills？  \nYou have to MAKE yourself do research.\n\n' +
+			'![](https://img3.doubanio.com/view/status/l/public/2b5a0eaefc3f853.jpg)',
+	);
+});
+
+test('豆瓣广播：转发的那句话在前，原广播排成引用段，回应接在分隔线后面', () => {
+	const { document } = parseHTML(doubanReshare);
+	const article = extractArticle(document, 'https://www.douban.com/people/190081998/status/3680424413/', { withReplies: true });
+	assert.equal(article.author, 'Isa🌸');
+	assert.equal(article.publishedAt, '2021-12-07 23:12:58');
+	assert.equal(
+		htmlToMarkdown(article.root),
+		'在海量信息中找出有用信息。\n\n' +
+			'> **王逅逅** · [2021-12-06 22:36:04](https://www.douban.com/people/44602874/status/3679192024/)\n>\n' +
+			'> 几年前。  \n> 何谓research skills？\n>\n' +
+			'> ![](https://img3.doubanio.com/view/status/l/public/2b5a0eaefc3f853.webp)\n\n' +
+			'---\n\n## 回应\n\n> **吝啬猪不记得了** · 2021-12-06 23:06:36\n>\n> 无比赞同',
+	);
+});
+
+test('豆瓣配图：small 缩略图换成 l 档，头像和别的站不动', () => {
+	assert.equal(
+		upgradeDoubanImage('https://img3.doubanio.com/view/status/small/public/2b5a0eaefc3f853.webp'),
+		'https://img3.doubanio.com/view/status/l/public/2b5a0eaefc3f853.webp',
+	);
+	assert.equal(upgradeDoubanImage('https://img3.doubanio.com/icon/up44602874-69.jpg'), 'https://img3.doubanio.com/icon/up44602874-69.jpg');
+	assert.equal(upgradeDoubanImage('https://example.com/view/status/small/a.jpg'), 'https://example.com/view/status/small/a.jpg');
+	assert.equal(upgradeDoubanImage('不是地址'), '不是地址');
 });
