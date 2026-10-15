@@ -11,7 +11,7 @@ import { dumpHtml, extractHtml, fetchHtml, styledHtml, WECHAT_UA } from '../src/
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
-const HELP = `web-extract —— 提取网页正文，转成干净的 Markdown
+const HELP = `web-extract —— 提取网页正文，转成干净的 Markdown，或存成带原站样式的单文件 HTML
 
 用法:
   web-extract parse <url|文件|-> [选项]   提取正文

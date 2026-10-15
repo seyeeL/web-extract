@@ -195,13 +195,14 @@ npm test
 
 测试用 Node 原生 test runner。`html2md` 用手搓的假节点（`tests/fake-dom.mjs`），提取和站点规则用 linkedom 跑离线 DOM，不依赖网络和登录态。
 
-加站点、加功能时，这几处对外的描述要一起改（站点列表、能做什么），漏一处就会有地方还停在旧版本：
+加站点、加功能时，这 7 处对外的描述要一起改（站点列表、能做什么），漏一处就会有地方还停在旧版本：
 
 - `README.md`：开头两段（中英文）、「站点规则」那张表、参数说明
 - `docs/sites.md`：兼容域名清单和站点那一节
 - `skills/web-extract/SKILL.md`：frontmatter 的 `description`（AI 靠它决定用不用这个 skill）和用法表
 - `package.json` 的 `description`
 - `.claude-plugin/plugin.json` 的 `description`、`keywords`，`.claude-plugin/marketplace.json` 的 `description`
+- `bin/web-extract.mjs` 的 `HELP` 第一行（`--help` 打出来的那句）
 - GitHub 仓库描述：`gh repo edit seyeeL/web-extract --description "…"`（不在仓库里，push 之后单独改）
 
 ## 许可
