@@ -75,7 +75,7 @@ cat page.html | web-extract parse - --md
 | （不带） | 清洗后的正文 HTML |
 | `-p <name>` | 单个字段 |
 | `--plain` | 配合 `--md`：去掉所有格式标记，只留文字和图片（排版坏掉的页面用） |
-| `--html` | 带原站样式的单文件 HTML（用户要「保留原网站样式」「存成网页」时用），配 `-o page.html`。默认整页只去广告；只要正文加 `--article`；图片打不开的站点（豆瓣、微博）再加 `--assets page_files` 把图存到本地 |
+| `--html` | 带原站样式的单文件 HTML（用户要「保留原网站样式」「存成网页」时用），配 `-o page.html`。默认整页只去广告；只要正文加 `--article`；图片打不开的站点（豆瓣、微博）再加 `--assets page_files` 把图存到本地，要单个文件发给别人用 `--embed-images` |
 
 ## 抓得不对时
 

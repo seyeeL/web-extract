@@ -6,6 +6,7 @@ Markdown 只留文字结构，原站的排版、字体、配色都没了。有�
 ```bash
 web-extract parse <url> --browser --html -o page.html --assets page_files   # 整页，图片存到本地
 web-extract parse <url> --html --article -o page.html                       # 只存正文
+web-extract parse <url> --browser --html --embed-images -o page.html        # 图片塞进 HTML，只出一个文件
 ```
 
 参考的是 [SingleFile](https://github.com/gildas-lormeau/SingleFile)（浏览器扩展，把整页存成一个 HTML），
@@ -44,7 +45,7 @@ web-extract parse <url> --html --article -o page.html                       # �
 | 重复的只留一份 | group-duplicate-stylesheets | 一模一样的内联样式表只留一份；一字不差的规则只留最后一条（层叠结果不变） |
 | 补懒加载图片 | load-deferred-images | 占位图换成 `data-src` 这类属性里的真地址 |
 | 压空白 | compress-html / compress-css | CSS 压空白、去注释；HTML 去注释 |
-| **图片不转 base64** | （SingleFile 默认转） | 留远程地址；要离线就 `--assets` 存成旁边目录里的文件 |
+| **图片默认不转 base64** | （SingleFile 默认转） | 留远程地址；要离线就 `--assets` 存成旁边目录里的文件，要单文件才 `--embed-images` |
 
 实测（2026-10-15）：
 
@@ -98,6 +99,11 @@ CSS 变量。去重和删变量之前裁完还有 222 KB。
 这类站点用 `--assets <目录>`：Node 带原页面（或规则里 `imageReferer`）的 Referer 去下载，
 存成 `<sha1>.jpg` 这样的文件，HTML 里用相对路径引用，`srcset` 去掉（不然浏览器还是挑远程那张）。
 `<img>`、视频封面、CSS 和行内 style 里的背景图（豆瓣首页的 logo、导航都是背景图）都存。
+
+手机上传来传去时，一个 HTML 加一个图片目录不方便，可以用 `--embed-images`：同样带 Referer 下载，
+但塞进 HTML 当 `data:` URI（单张 5 MB、总共 30 MB 封顶，超了的留远程地址）。体积会大很多：
+豆瓣那条广播 `--assets` 是 32 KB + 22 张图（约 350 KB），`--embed-images` 是一个 540 KB 的文件。
+默认不开，和 `--assets` 二选一。
 
 字体不存，仍是远程地址：一套字体几 MB，不值。字体跨域要 CORS，原站没开就退回系统字体。
 

@@ -23,6 +23,7 @@ const HELP = `web-extract —— 提取网页正文，转成干净的 Markdown
   --html               带原站样式的单文件 HTML：整页去掉广告和脚本，CSS 只留用到的，图片留远程地址
   --article            --html 时只存正文（导航、侧栏、评论区都不要），上面补一行出处
   --assets <目录>      --html 时把图片下载到这个目录，HTML 里用相对路径引用（防盗链的站点用）
+  --embed-images       --html 时把图片塞进 HTML，只出一个文件（大，但好传）
   (不带)               清洗后的正文 HTML
   -p, --property <名>  只输出一个字段：title author publishedAt siteName domain url markdown html
   -o, --output <文件>  写进文件，不打到标准输出
@@ -110,6 +111,7 @@ async function run(argv) {
 			html: { type: 'boolean' },
 			article: { type: 'boolean' },
 			assets: { type: 'string' },
+			'embed-images': { type: 'boolean' },
 			property: { type: 'string', short: 'p' },
 			output: { type: 'string', short: 'o' },
 			browser: { type: 'boolean' },
@@ -157,6 +159,8 @@ async function run(argv) {
 
 	if (values.assets && !values.html) throw new UsageError('--assets 要配 --html');
 	if (values.article && !values.html) throw new UsageError('--article 要配 --html');
+	if (values['embed-images'] && !values.html) throw new UsageError('--embed-images 要配 --html');
+	if (values['embed-images'] && values.assets) throw new UsageError('--embed-images 和 --assets 二选一');
 	if (values.html && (values.md || values.json || values.property)) {
 		throw new UsageError('--html 不能和 --md / --json / -p 一起用');
 	}
@@ -202,7 +206,7 @@ function kb(n) {
 
 /** --html：带样式的单文件 HTML。体积和抓不到的样式表、图片走 stderr。 */
 async function runStyled(input, values, options, { remote, browser }) {
-	const styledOptions = { ...options, articleOnly: values.article === true };
+	const styledOptions = { ...options, articleOnly: values.article === true, embedImages: values['embed-images'] === true };
 	if (values.assets) {
 		// HTML 里引用图片的相对路径：从输出文件所在目录（没给 -o 就是当前目录）算到图片目录。
 		// Windows 的反斜杠换成 /，不然浏览器认不出
@@ -223,7 +227,7 @@ async function runStyled(input, values, options, { remote, browser }) {
 	const { stats } = result;
 	const notes = [
 		...result.warnings,
-		`HTML ${kb(stats.bytes)}（样式 ${kb(stats.cssBefore)} 裁到 ${kb(stats.cssAfter)}${stats.saved !== undefined ? `，存下 ${stats.saved} 张图` : ''}）`,
+		`HTML ${kb(stats.bytes)}（样式 ${kb(stats.cssBefore)} 裁到 ${kb(stats.cssAfter)}${stats.saved !== undefined ? `，${values['embed-images'] ? '塞进' : '存下'} ${stats.saved} 张图` : ''}）`,
 	];
 	return { text: result.html, outFile: values.output, warning: notes.join('\nweb-extract: ') };
 }

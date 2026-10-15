@@ -269,3 +269,18 @@ test('--assets：CSS 和行内 style 里的背景图也存到本地，字体不�
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test('embedImages：图片塞进 HTML 当 data: URI，不落盘；不是图片的照样留远程地址', async () => {
+	const page = PAGE.replace('</article>', '<p><img src="/img/blocked.gif"></p></article>')
+		.replace('<style>.post', '<style>.logo{background:url(/img/logo.jpg)}.post');
+	const { html, stats } = await styledHtml(page.replace('<main', '<div class="logo"></div><main'), 'https://example.com/post/1', {
+		fetchImpl: fakeFetch(),
+		embedImages: true,
+	});
+	const { document } = parseHTML(html);
+	const srcs = Array.from(document.querySelectorAll('article img')).map((img) => img.getAttribute('src'));
+	assert.equal(srcs[0], 'data:image/jpeg;base64,/9j/');
+	assert.equal(srcs[1], 'https://example.com/img/blocked.gif');
+	assert.match(html, /\.logo\{background:url\(data:image\/jpeg;base64,\/9j\/\)\}/);
+	assert.equal(stats.saved, 2);
+});

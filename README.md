@@ -82,7 +82,7 @@ web-extract parse <url> --html --article -o page.html                       # �
 ```
 
 豆瓣、微博这类有防盗链的站点，离开原站图片打不开，加 `--assets <目录>` 把图片（含 CSS 背景图）下载到
-HTML 旁边，用相对路径引用。体积和抓不到的样式表报在 stderr。怎么裁、实测体积、边界：
+HTML 旁边，用相对路径引用；要只出一个文件（手机上好传）用 `--embed-images`，图片塞进 HTML，体积大不少。体积和抓不到的样式表报在 stderr。怎么裁、实测体积、边界：
 **[docs/styled-html.md](docs/styled-html.md)**。
 
 其它参数：
@@ -121,7 +121,7 @@ const fromHtml = extractHtml(html, 'https://example.com/post');
 const fromUrl = await extractUrl('https://example.com/post', { plain: false });
 
 // 带样式的单文件 HTML（要联网抓样式表，所以是异步的）
-// articleOnly: true 只存正文，不给就整页（去广告）
+// articleOnly: true 只存正文，不给就整页（去广告）；assetsDir / embedImages 存图片
 const { html: page, warnings, stats } = await styledHtml(html, 'https://example.com/post');
 ```
 

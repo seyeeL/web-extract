@@ -5,8 +5,9 @@
 // linkedom 里跑，浏览器模式时注进页面跑，两条路交过来的东西长得一样。
 //
 // 图片默认留远程地址，不转 base64（SingleFile 那样一张图就能把文件撑到几 MB）。可是
-// 豆瓣、微博这类站点有防盗链，离开原站打不开，所以给了 assetsDir：图片下载到 HTML 旁边
-// 的目录里，用相对路径引用，HTML 本身仍然很小。
+// 豆瓣、微博这类站点有防盗链，离开原站打不开，所以给了两条路：assetsDir 把图片下载到
+// HTML 旁边的目录里、用相对路径引用，HTML 本身仍然很小；embedImages 塞进 HTML 当 data: URI，
+// 文件大，但只有一个，手机上传来传去方便。
 
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -29,6 +30,9 @@ const MAX_SHEETS = 100;
 const CSS_BUDGET_MS = 60_000;
 // 图片落本地时的上限
 export const MAX_ASSET_BYTES = 20 * 1024 * 1024;
+// 图片塞进 HTML 时更紧：单张 5 MB，加起来 30 MB，超了的留远程地址
+export const MAX_EMBED_BYTES = 5 * 1024 * 1024;
+export const MAX_EMBED_TOTAL = 30 * 1024 * 1024;
 const MAX_ASSETS = 300;
 const ASSET_CONCURRENCY = 4;
 
@@ -239,10 +243,14 @@ function selectorMatcher(doc) {
 	};
 }
 
-/** 下载图片到 dir，返回 原地址 → 相对路径 的对照表。失败的不在表里（HTML 里留远程地址）。 */
-async function downloadAssets(urls, { dir, href, referer, fetchImpl, userAgent, timeoutMs }) {
+/**
+ * 下载图片，返回 原地址 → 新地址 的对照表。失败的不在表里（HTML 里留远程地址）。
+ * 给了 dir 就存成文件，新地址是 href 下的相对路径；embed 为真就不落盘，新地址是 data: URI。
+ */
+async function downloadAssets(urls, { dir, href, embed = false, referer, fetchImpl, userAgent, timeoutMs }) {
 	const map = new Map();
 	const warnings = [];
+	let embedded = 0;
 	const list = Array.from(new Set(urls)).filter((u) => /^https?:\/\//i.test(u));
 	if (list.length > MAX_ASSETS) warnings.push(`图片超过 ${MAX_ASSETS} 张，后面的留远程地址`);
 	const queue = list.slice(0, MAX_ASSETS);
@@ -257,13 +265,19 @@ async function downloadAssets(urls, { dir, href, referer, fetchImpl, userAgent, 
 					userAgent,
 					referer,
 					timeoutMs: timeoutMs ?? 30_000,
-					maxBytes: MAX_ASSET_BYTES,
+					maxBytes: embed ? MAX_EMBED_BYTES : MAX_ASSET_BYTES,
 					accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
 				});
 				const mime = type.split(';')[0].trim().toLowerCase();
 				const ext = IMAGE_EXT[mime];
 				// 不是图片（防盗链给的 HTML 报错页、418 的那几个字节）就别存
 				if (!ext) throw new Error(`不是图片（${mime || '没有类型'}）`);
+				if (embed) {
+					if (embedded + bytes.byteLength > MAX_EMBED_TOTAL) throw new Error('塞进 HTML 的图片总量超过上限');
+					embedded += bytes.byteLength;
+					map.set(url, `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`);
+					continue;
+				}
 				const name = `${createHash('sha1').update(url).digest('hex').slice(0, 16)}.${ext}`;
 				if (!made) {
 					mkdirSync(dir, { recursive: true });
@@ -309,8 +323,9 @@ function imageUrls(doc) {
  * 页面侧材料 → 完整的 HTML 文件。
  * @param {ReturnType<import('./snapshot.js').snapshotDocument>} snap
  * @param {{userAgent?: string, timeoutMs?: number, fetchImpl?: typeof fetch,
- *   assetsDir?: string, assetsHref?: string, now?: Date}} [options]
- *   assetsDir：图片下载到这个目录；assetsHref：HTML 里引用它们用的相对路径
+ *   assetsDir?: string, assetsHref?: string, embedImages?: boolean, now?: Date}} [options]
+ *   assetsDir：图片下载到这个目录；assetsHref：HTML 里引用它们用的相对路径；
+ *   embedImages：图片塞进 HTML（给了 assetsDir 时不生效）
  * @returns {Promise<{html: string, warnings: string[], stats: object}>}
  */
 export async function buildStyledHtml(snap, options = {}) {
@@ -338,12 +353,13 @@ export async function buildStyledHtml(snap, options = {}) {
 	let css = shrinkCss(rawCss, selectorMatcher(doc), inlineStyles);
 
 	let assetStats = null;
-	if (options.assetsDir) {
+	if (options.assetsDir || options.embedImages) {
 		const styled = Array.from(doc.querySelectorAll('[style]'));
 		const cssImages = [css, ...styled.map((el) => el.getAttribute('style'))].flatMap(cssImageUrls);
 		const { map, warnings: assetWarnings } = await downloadAssets([...imageUrls(doc), ...cssImages], {
 			dir: options.assetsDir,
-			href: options.assetsHref ?? options.assetsDir,
+			href: options.assetsHref ?? options.assetsDir ?? '',
+			embed: !options.assetsDir && options.embedImages === true,
 			referer,
 			fetchImpl,
 			userAgent: options.userAgent,
