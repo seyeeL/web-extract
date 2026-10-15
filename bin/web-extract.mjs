@@ -20,7 +20,8 @@ const HELP = `web-extract —— 提取网页正文，转成干净的 Markdown
 输出（parse）:
   --md                 Markdown（推荐）
   --json               JSON：url / title / author / publishedAt / siteName / domain / markdown / html
-  --html               带原站样式的单文件 HTML：正文 + 用到的那部分 CSS，图片留远程地址
+  --html               带原站样式的单文件 HTML：整页去掉广告和脚本，CSS 只留用到的，图片留远程地址
+  --article            --html 时只存正文（导航、侧栏、评论区都不要），上面补一行出处
   --assets <目录>      --html 时把图片下载到这个目录，HTML 里用相对路径引用（防盗链的站点用）
   (不带)               清洗后的正文 HTML
   -p, --property <名>  只输出一个字段：title author publishedAt siteName domain url markdown html
@@ -107,6 +108,7 @@ async function run(argv) {
 			md: { type: 'boolean' },
 			json: { type: 'boolean' },
 			html: { type: 'boolean' },
+			article: { type: 'boolean' },
 			assets: { type: 'string' },
 			property: { type: 'string', short: 'p' },
 			output: { type: 'string', short: 'o' },
@@ -154,6 +156,7 @@ async function run(argv) {
 	for (const key of Object.keys(options)) if (options[key] === undefined) delete options[key];
 
 	if (values.assets && !values.html) throw new UsageError('--assets 要配 --html');
+	if (values.article && !values.html) throw new UsageError('--article 要配 --html');
 	if (values.html && (values.md || values.json || values.property)) {
 		throw new UsageError('--html 不能和 --md / --json / -p 一起用');
 	}
@@ -199,7 +202,7 @@ function kb(n) {
 
 /** --html：带样式的单文件 HTML。体积和抓不到的样式表、图片走 stderr。 */
 async function runStyled(input, values, options, { remote, browser }) {
-	const styledOptions = { ...options };
+	const styledOptions = { ...options, articleOnly: values.article === true };
 	if (values.assets) {
 		// HTML 里引用图片的相对路径：从输出文件所在目录（没给 -o 就是当前目录）算到图片目录。
 		// Windows 的反斜杠换成 /，不然浏览器认不出

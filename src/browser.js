@@ -37,9 +37,9 @@ export function extractExpression(options = {}) {
 	return `(() => { ${pageBundle()}\n return JSON.stringify(extractDocument(document, location.href, ${opts})); })()`;
 }
 
-/** 在页面里收带样式 HTML 的材料（正文 + 骨架 + 样式表清单），返回 JSON 字符串。 */
+/** 在页面里收带样式 HTML 的材料（要存的 <body> + 样式表清单），返回 JSON 字符串。 */
 export function snapshotExpression(options = {}) {
-	const opts = JSON.stringify({ withReplies: options.withReplies === true });
+	const opts = JSON.stringify({ withReplies: options.withReplies === true, articleOnly: options.articleOnly === true });
 	return `(() => { ${pageBundle()}\n return JSON.stringify(snapshotDocument(document, location.href, ${opts})); })()`;
 }
 

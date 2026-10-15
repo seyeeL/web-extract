@@ -44,7 +44,8 @@ const IMAGE_EXT = {
 	'image/vnd.microsoft.icon': 'ico',
 };
 
-// 只做两件事：骨架上的祖先不许把正文截掉，图片别撑出屏幕。
+// 只存正文时补的几条（整页存时一条都不加，原样就是原站的样子）：
+// 骨架上的祖先不许把正文截掉，图片别撑出屏幕，出处那行的间距。
 // 骨架那几层的固定高度、overflow:hidden 是给「整屏 + 内部滚动」布局用的，正文离开了
 // 那套 JS，留着它们正文就被截在一屏里
 const FIX_CSS = [
@@ -279,6 +280,23 @@ async function downloadAssets(urls, { dir, href, referer, fetchImpl, userAgent, 
 	return { map, warnings };
 }
 
+// url() 里的字体不下载（跨域字体要 CORS，存到本地反而能用，但一套字体几 MB，不值）
+const FONT_EXT = /\.(woff2?|ttf|otf|eot)(\?|#|$)/i;
+const CSS_URL = /url\(\s*(['"]?)(https?:\/\/[^'")\s]+)\1\s*\)/gi;
+
+/** CSS 文字里引用的图片地址（绝对地址，不含字体）。 */
+function cssImageUrls(text) {
+	return Array.from(String(text ?? '').matchAll(CSS_URL), (m) => m[2]).filter((url) => !FONT_EXT.test(url));
+}
+
+/** CSS 里存到本地的那些地址换成相对路径。 */
+function replaceCssUrls(text, map) {
+	return String(text ?? '').replace(CSS_URL, (whole, quote, url) => {
+		const local = map.get(url);
+		return local ? `url(${quote}${local}${quote})` : whole;
+	});
+}
+
 /** 正文里引用到的图片地址：<img src / srcset>、<source srcset>、<video poster>。 */
 function imageUrls(doc) {
 	const urls = [];
@@ -317,11 +335,13 @@ export async function buildStyledHtml(snap, options = {}) {
 	const inlineStyles = Array.from(doc.querySelectorAll('[style]'))
 		.map((el) => el.getAttribute('style'))
 		.join('\n');
-	const css = shrinkCss(rawCss, selectorMatcher(doc), inlineStyles);
+	let css = shrinkCss(rawCss, selectorMatcher(doc), inlineStyles);
 
 	let assetStats = null;
 	if (options.assetsDir) {
-		const { map, warnings: assetWarnings } = await downloadAssets(imageUrls(doc), {
+		const styled = Array.from(doc.querySelectorAll('[style]'));
+		const cssImages = [css, ...styled.map((el) => el.getAttribute('style'))].flatMap(cssImageUrls);
+		const { map, warnings: assetWarnings } = await downloadAssets([...imageUrls(doc), ...cssImages], {
 			dir: options.assetsDir,
 			href: options.assetsHref ?? options.assetsDir,
 			referer,
@@ -343,6 +363,9 @@ export async function buildStyledHtml(snap, options = {}) {
 			const local = map.get(el.getAttribute('poster'));
 			if (local) el.setAttribute('poster', local);
 		}
+		// CSS 里的背景图、图标 sprite（豆瓣首页的 logo、导航都是背景图）
+		css = replaceCssUrls(css, map);
+		for (const el of styled) el.setAttribute('style', replaceCssUrls(el.getAttribute('style'), map));
 		assetStats = { saved: map.size };
 	}
 
@@ -362,7 +385,7 @@ export async function buildStyledHtml(snap, options = {}) {
 		'<meta name="generator" content="web-extract">',
 		// </style 出现在 CSS 里会提前把 <style> 关掉，后面的东西就成了 HTML
 		css ? `<style>${css.replace(/<\/style/gi, '<\\/style')}</style>` : '',
-		`<style>${FIX_CSS}</style>`,
+		snap.mode === 'article' ? `<style>${FIX_CSS}</style>` : '',
 	].filter(Boolean).join('\n');
 
 	const saved = (options.now ?? new Date()).toISOString();

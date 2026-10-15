@@ -2,7 +2,7 @@
 
 提取网页正文，转成干净的 Markdown，同时给出标题、作者、发布时间。
 
-Extract the main content of a web page as clean Markdown, with title, author and publish date. Default rules that work on most article pages, plus hand-written site rules where they fall short: WeChat 公众号, 微博 (Weibo), 小红书 (Xiaohongshu), X/Twitter, 知识星球 (zsxq), GitHub Gist and 豆瓣广播 (Douban statuses). `--html` saves the content with the site's own styles as a single small HTML file.
+Extract the main content of a web page as clean Markdown, with title, author and publish date. Default rules that work on most article pages, plus hand-written site rules where they fall short: WeChat 公众号, 微博 (Weibo), 小红书 (Xiaohongshu), X/Twitter, 知识星球 (zsxq), GitHub Gist and 豆瓣广播 (Douban statuses). `--html` saves the page with the site's own styles (ads, scripts and unused CSS stripped) as a single small HTML file.
 
 一份代码三种用法：
 
@@ -73,16 +73,17 @@ web-extract parse "<url>" --attach --md
 
 ### 带样式的 HTML
 
-`--html` 存一个能单独打开的 HTML：正文 + 原站样式，导航侧栏广告都不要。站点 CSS 只留正文用到的那部分
-（几百 KB 的样式表一般裁到几 KB），图片不转 base64，留远程地址：
+`--html` 存一个能单独打开的 HTML，长得和原页面一样：默认整页，只去掉广告、脚本和看不见的元素；
+`--article` 只存正文（导航侧栏评论区都不要）。站点 CSS 只留页面上用到的那部分，图片不转 base64，留远程地址：
 
 ```bash
-web-extract parse <url> --html -o page.html
-web-extract parse <url> --browser --html -o page.html --assets page_files   # 图片也存下来
+web-extract parse <url> --browser --html -o page.html --assets page_files   # 整页，图片存到本地
+web-extract parse <url> --html --article -o page.html                       # 只存正文
 ```
 
-豆瓣、微博这类有防盗链的站点，离开原站图片打不开，加 `--assets <目录>` 把图片下载到 HTML 旁边，
-用相对路径引用。体积和抓不到的样式表报在 stderr。怎么裁、实测体积、边界：**[docs/styled-html.md](docs/styled-html.md)**。
+豆瓣、微博这类有防盗链的站点，离开原站图片打不开，加 `--assets <目录>` 把图片（含 CSS 背景图）下载到
+HTML 旁边，用相对路径引用。体积和抓不到的样式表报在 stderr。怎么裁、实测体积、边界：
+**[docs/styled-html.md](docs/styled-html.md)**。
 
 其它参数：
 
@@ -120,6 +121,7 @@ const fromHtml = extractHtml(html, 'https://example.com/post');
 const fromUrl = await extractUrl('https://example.com/post', { plain: false });
 
 // 带样式的单文件 HTML（要联网抓样式表，所以是异步的）
+// articleOnly: true 只存正文，不给就整页（去广告）
 const { html: page, warnings, stats } = await styledHtml(html, 'https://example.com/post');
 ```
 

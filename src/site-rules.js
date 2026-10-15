@@ -963,6 +963,29 @@ export const SITE_RULES = [
 ];
 
 /**
+ * 各站点的广告位，--html 整页存时删掉。和 SITE_RULES 分开：广告按整个域名算，不管是哪种页面，
+ * 也和正文怎么取无关。通用的广告词（class / id 里的 ad、sponsor……）在 snapshot.js 里，这里只放
+ * 通用规则认不出来的。
+ */
+export const SITE_ADS = [
+	// 豆瓣自家的广告系统叫 dale：电影条目页七八个 dale_movie_subject_…，首页右上角那块
+	// 「广告」是 dale_anonymous_homepage_right_top（2026-10-15 实测）
+	{ hosts: ['douban.com'], selectors: ['[id^="dale_"]'] },
+];
+
+/** 这个地址所在站点的广告位选择器。 */
+export function adSelectorsFor(url) {
+	let host;
+	try {
+		host = new URL(String(url)).hostname.toLowerCase();
+	} catch {
+		return [];
+	}
+	return SITE_ADS.filter((entry) => entry.hosts.some((h) => host === h || host.endsWith(`.${h}`)))
+		.flatMap((entry) => entry.selectors);
+}
+
+/**
  * 命中的规则，没有就返回 null。子域自动继承（m.weibo.cn 命中 weibo.cn）。
  * 规则写了 paths 的还要路径对得上（同一个域名下只管某一种页面）。
  */

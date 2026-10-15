@@ -1,8 +1,11 @@
-// 带样式的 HTML（--html）在页面这一侧要做的事：正文 + 祖先骨架，加上页面用到的样式表清单。
+// 带样式的 HTML（--html）在页面这一侧要做的事：要存的那棵 <body>，加上页面用到的样式表清单。
 //
-// 不存整页：导航、侧栏、广告占掉大半体积，剪藏要的只是正文那一块。但正文离开原来的
-// 祖先，`.article .post p` 这种后代选择器就全落空了，样式也就没了。所以把正文到 <body>
-// 之间的每一层祖先浅拷贝一份（只留标签和属性，不要兄弟节点）套回去，站点 CSS 照旧命中。
+// 两种存法：
+// - 整页（默认）：<body> 整个拷一份，只去掉广告、脚本和看不见的元素。站点的导航、侧栏、
+//   评论区都在，长得和原页面一样
+// - 只存正文（articleOnly）：正文 + 祖先骨架。正文离开原来的祖先，`.article .post p` 这种
+//   后代选择器就全落空了，样式也就没了，所以把正文到 <body> 之间的每一层祖先浅拷贝一份
+//   （只留标签和属性，不要兄弟节点）套回去，站点 CSS 照旧命中
 //
 // 样式表在这里只收清单，不在页面里拉：跨域的 <link> 读不到 cssRules，fetch 又受 CORS 管，
 // 交给 Node 那边去抓、去裁。CSS-in-JS 用 insertRule 塞进去的规则在 <style> 的文字里看不到，
@@ -12,7 +15,7 @@
 // 顶层名字不能和那几个文件撞。
 
 import { extractArticle } from './extract.js';
-import { ruleFor } from './site-rules.js';
+import { adSelectorsFor, ruleFor } from './site-rules.js';
 
 // 骨架上每一层祖先都挂这个属性：Node 那边按它压掉固定高度、overflow:hidden，
 // 不然 SPA 的「整屏高 + 内部滚动」布局会把正文截掉
@@ -30,8 +33,17 @@ const SNAP_URL_ATTRS = { a: ['href'], img: ['src'], video: ['poster', 'src'], so
 const SNAP_HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 // 出处那一行能直接塞进去当第一个孩子的容器（ul、table、p 里塞个 div 就坏了）
 const SNAP_FLOW_TAGS = new Set(['DIV', 'ARTICLE', 'MAIN', 'SECTION', 'BODY']);
-// 能执行脚本、嵌别的页面、提交表单的东西，骨架和正文里都不留
-const SNAP_UNSAFE_TAGS = 'script,noscript,iframe,frame,frameset,object,embed,applet,base,meta,link,form,template,portal';
+// 能执行脚本、嵌别的页面的东西，存下来的页面里都不留
+const SNAP_UNSAFE_TAGS = 'script,noscript,iframe,frame,frameset,object,embed,applet,base,meta,link,template,portal';
+// 只存正文时连表单一起删（正文里的表单是噪声）；整页存时表单是页面长相的一部分，
+// 留着但去掉提交地址（头上的 CSP 也禁了提交）
+const SNAP_FORM_ATTRS = ['action', 'method', 'target'];
+
+// 广告：class / id 里有这些词（按 - _ 空格切开的整词，不会误中 header、download 这类）
+const SNAP_AD_WORDS = /(^|[\s_-])(ad|ads|adv|advert|adverts|advertisement|advertising|adsbygoogle|adslot|adbox|adunit|adwrap|adcontainer|sponsor|sponsored|sponsorship)([\s_-]|$)/i;
+// 广告联盟的固定写法
+const SNAP_AD_SELECTORS = 'ins.adsbygoogle,[id^="div-gpt-ad"],[id^="google_ads"],[data-ad-slot],[data-ad-client],[data-ad-unit],amp-ad,amp-embed';
+const SNAP_SVG_NS = 'http://www.w3.org/2000/svg';
 
 function snapAbsolute(value, base) {
 	const raw = String(value ?? '').trim();
@@ -71,8 +83,13 @@ function snapIsPlaceholder(src) {
  * 正文和骨架过一遍：去掉能跑脚本的东西，补全地址，懒加载图片换成真地址。
  * 就地改，node 是克隆体，不会碰到页面本身。
  */
-export function snapSanitize(node, base) {
-	for (const el of Array.from(node.querySelectorAll(SNAP_UNSAFE_TAGS))) el.remove();
+export function snapSanitize(node, base, { keepForms = false } = {}) {
+	for (const el of Array.from(node.querySelectorAll(keepForms ? SNAP_UNSAFE_TAGS : `${SNAP_UNSAFE_TAGS},form`))) el.remove();
+	if (keepForms) {
+		for (const form of Array.from(node.querySelectorAll('form'))) {
+			for (const name of SNAP_FORM_ATTRS) form.removeAttribute(name);
+		}
+	}
 	const elements = [node, ...Array.from(node.querySelectorAll('*'))];
 	for (const el of elements) {
 		for (const name of el.getAttributeNames?.() ?? []) {
@@ -185,7 +202,7 @@ function snapIsFixed(el) {
  * 整个 body 都包在一个 <form> 里，原样留着正文会跟着一起没）。
  */
 function snapShell(doc, el) {
-	if (!el.matches?.(SNAP_UNSAFE_TAGS)) return el.cloneNode(false);
+	if (!el.matches?.(`${SNAP_UNSAFE_TAGS},form`)) return el.cloneNode(false);
 	const div = doc.createElement('div');
 	for (const [name, value] of Object.entries(snapAttrs(el))) div.setAttribute(name, value);
 	return div;
@@ -321,19 +338,123 @@ export function snapSkeleton(doc, article) {
 	return bodyShell;
 }
 
+/** 是不是广告：class / id 里有广告词，或者是广告联盟的固定写法。 */
+function snapIsAd(el, extra) {
+	if (el.matches?.(SNAP_AD_SELECTORS)) return true;
+	if (extra && el.matches?.(extra)) return true;
+	const cls = el.getAttribute?.('class') ?? '';
+	return SNAP_AD_WORDS.test(`${typeof cls === 'string' ? cls : ''} ${el.getAttribute?.('id') ?? ''}`);
+}
+
 /**
- * 带样式 HTML 的页面侧材料：元信息、<html> 的属性、套好骨架的 <body>、样式表清单。
+ * 页面和克隆体结构一样，两边一起往下走，在浏览器里（看得到计算样式时）收两样东西：
+ * - display: none 的元素（SingleFile 的 remove-hidden-elements）：折叠的菜单、没弹出来的
+ *   登录框、各种占位，存下来也看不见。<svg> 整棵不碰（图标 sprite 本来就是 display:none，
+ *   删了图标就空了）
+ * - <iframe> 在页面上实际占多大，换占位块时照这个尺寸
+ * linkedom 里没有计算样式，什么也不收。
+ */
+function snapWalkLive(live, clone) {
+	const view = live.ownerDocument?.defaultView;
+	const hidden = [];
+	const frames = new Map();
+	if (!view?.getComputedStyle) return { hidden, frames };
+	const walk = (a, b) => {
+		const liveKids = Array.from(a.children ?? []);
+		const cloneKids = Array.from(b.children ?? []);
+		for (let i = 0; i < liveKids.length && i < cloneKids.length; i += 1) {
+			const el = liveKids[i];
+			if (el.namespaceURI === SNAP_SVG_NS) continue;
+			let display = '';
+			try {
+				display = view.getComputedStyle(el).display;
+			} catch {
+				display = '';
+			}
+			if (display === 'none') {
+				hidden.push(cloneKids[i]);
+				continue;
+			}
+			if (el.nodeName === 'IFRAME') {
+				const box = el.getBoundingClientRect?.();
+				if (box?.width && box?.height) frames.set(cloneKids[i], [Math.round(box.width), Math.round(box.height)]);
+			}
+			walk(el, cloneKids[i]);
+		}
+	};
+	walk(live, clone);
+	return { hidden, frames };
+}
+
+/**
+ * <iframe> 换成一样大的空块。iframe 本身不能留（能跑别人的页面），可直接删的话靠它撑起来的
+ * 版面会塌：豆瓣首页那一大块背景图的高度就是右边登录框 iframe 撑的，删了整块缩成一条。
+ * 尺寸优先用浏览器里量到的，其次 width / height 属性，都没有按 iframe 默认的 300×150。
+ */
+function snapFramePlaceholders(doc, clone, measured) {
+	for (const frame of Array.from(clone.querySelectorAll('iframe,frame,embed,object'))) {
+		const size = measured.get(frame);
+		const attr = (name, fallback) => {
+			const value = String(frame.getAttribute(name) ?? '').trim();
+			if (/^\d+$/.test(value)) return `${value}px`;
+			return /^\d+(\.\d+)?(px|%|em|rem|vw|vh)$/.test(value) ? value : fallback;
+		};
+		const width = size ? `${size[0]}px` : attr('width', '300px');
+		const height = size ? `${size[1]}px` : attr('height', '150px');
+		const box = doc.createElement('div');
+		for (const name of ['id', 'class']) {
+			const value = frame.getAttribute(name);
+			if (value) box.setAttribute(name, value);
+		}
+		box.setAttribute('data-web-extract-frame', '');
+		box.setAttribute('style', `${frame.getAttribute('style') ?? ''};display:inline-block;width:${width};height:${height};max-width:100%;vertical-align:top`);
+		frame.replaceWith(box);
+	}
+}
+
+/**
+ * 整页存：<body> 整个拷一份，去掉看不见的元素和广告。规则的 prepare 也跑一遍
+ * （豆瓣广播的配图在静态 HTML 里只是脚本里的 JSON，脚本马上要删）。
+ */
+export function snapFullBody(doc, rule, url = '') {
+	const live = doc.body ?? doc.documentElement;
+	const clone = live.cloneNode(true);
+	const { hidden, frames } = snapWalkLive(live, clone);
+	for (const el of hidden) el.remove();
+	if (typeof rule?.prepare === 'function') {
+		try {
+			rule.prepare(clone);
+		} catch {
+			// 补不出来就当没有
+		}
+	}
+	const extra = adSelectorsFor(url).join(',');
+	for (const el of Array.from(clone.querySelectorAll('[class],[id],ins,amp-ad,amp-embed,[data-ad-slot],[data-ad-client],[data-ad-unit]'))) {
+		// 外层已经当广告删掉了的，里面的不用再看
+		if (!clone.contains(el)) continue;
+		if (snapIsAd(el, extra)) el.remove();
+	}
+	// 放在删广告之后：广告位的 iframe 连同外面那层一起没了，不用占位
+	snapFramePlaceholders(doc, clone, frames);
+	return clone;
+}
+
+/**
+ * 带样式 HTML 的页面侧材料：元信息、<html> 的属性、要存的 <body>、样式表清单。
  * 返回的都是字符串和普通对象，能直接 JSON 化从页面里带出来。
- * @param {{withReplies?: boolean}} [options]
+ * @param {{withReplies?: boolean, articleOnly?: boolean}} [options] articleOnly：只存正文
+ *   （正文 + 祖先骨架），不给就整页存
  */
 export function snapshotDocument(doc, url = '', options = {}) {
 	const article = extractArticle(doc, url, { withReplies: options.withReplies === true, styled: true });
 	const base = article.url || url;
-	const body = snapSkeleton(doc, article);
+	const articleOnly = options.articleOnly === true;
+	const body = articleOnly ? snapSkeleton(doc, article) : snapFullBody(doc, ruleFor(article.url), article.url);
 	snapSvgSprites(doc, body);
-	snapSanitize(body, base);
+	snapSanitize(body, base, { keepForms: !articleOnly });
 	const viewport = doc.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? '';
 	return {
+		mode: articleOnly ? 'article' : 'full',
 		url: article.url,
 		title: article.title,
 		author: article.author,

@@ -62,15 +62,15 @@ function fakeFetch(log = []) {
 	};
 }
 
-test('带样式 HTML：正文套回祖先骨架，站点 CSS 照旧命中', async () => {
-	const { html, warnings } = await styledHtml(PAGE, 'https://example.com/post/1', { fetchImpl: fakeFetch() });
+test('只存正文：正文套回祖先骨架，站点 CSS 照旧命中', async () => {
+	const { html, warnings } = await styledHtml(PAGE, 'https://example.com/post/1', { fetchImpl: fakeFetch(), articleOnly: true });
 	assert.deepEqual(warnings, []);
 	const { document } = parseHTML(html);
 	// 骨架：body > #layout > main.post > article.body，侧栏、导航不在
 	const article = document.querySelector('body.page > #layout > main.post > article.body');
 	assert.ok(article, '正文的祖先一层层都在');
-	assert.equal(document.querySelector('.sidebar'), null);
-	assert.equal(document.querySelector('nav'), null);
+	assert.ok(!document.querySelector('.sidebar'));
+	assert.ok(!document.querySelector('nav'));
 	assert.equal(document.documentElement.getAttribute('lang'), 'zh-CN');
 	assert.equal(document.documentElement.getAttribute('class'), 'theme-light');
 	assert.equal(document.documentElement.getAttribute('onclick'), null);
@@ -112,8 +112,8 @@ test('带样式 HTML：脚本、事件属性、javascript: 地址都不留，懒
 	assert.match(html, /<meta name="referrer" content="no-referrer">/);
 });
 
-test('带样式 HTML：出处那行放在正文容器里；正文自带标题就不再加标题', async () => {
-	const { html } = await styledHtml(PAGE, 'https://example.com/post/1', { fetchImpl: fakeFetch() });
+test('只存正文：出处那行放在正文容器里；正文自带标题就不再加标题', async () => {
+	const { html } = await styledHtml(PAGE, 'https://example.com/post/1', { fetchImpl: fakeFetch(), articleOnly: true });
 	const { document } = parseHTML(html);
 	const meta = document.querySelector('article.body > .web-extract-meta');
 	assert.ok(meta, '出处是正文容器的第一个孩子');
@@ -171,15 +171,101 @@ test('带样式 HTML：没有可存的图就不建目录', async () => {
 	}
 });
 
-test('带样式 HTML：正文是整个 <body> 时不套第二层 body；祖先是 <form> 换成 <div> 不连正文一起删', async () => {
+test('只存正文：正文是整个 <body> 时不套第二层 body；祖先是 <form> 换成 <div> 不连正文一起删', async () => {
 	const bare = '<!DOCTYPE html><html><head><title>短</title></head><body class="b"><span>就几个字</span></body></html>';
-	const { html } = await styledHtml(bare, 'https://example.com/x', { fetchImpl: fakeFetch() });
+	const { html } = await styledHtml(bare, 'https://example.com/x', { fetchImpl: fakeFetch(), articleOnly: true });
 	assert.equal(html.match(/<body/g).length, 1);
 	assert.match(html, /<body[^>]* class="b"/);
 
 	const aspnet = PAGE.replace('<div id="layout" class="layout">', '<form id="aspnetForm" action="/x"><div id="layout" class="layout">').replace('</main></div>', '</main></div></form>');
-	const { html: out } = await styledHtml(aspnet, 'https://example.com/post/1', { fetchImpl: fakeFetch() });
+	const { html: out } = await styledHtml(aspnet, 'https://example.com/post/1', { fetchImpl: fakeFetch(), articleOnly: true });
 	const { document } = parseHTML(out);
-	assert.equal(document.querySelector('form'), null);
+	assert.ok(!document.querySelector('form'));
 	assert.ok(document.querySelector('div#aspnetForm > #layout article.body p'));
+});
+
+test('整页存（默认）：导航、侧栏都在，广告删掉，表单留着但去掉提交地址', async () => {
+	const page = PAGE
+		.replace('<aside class="sidebar">侧栏</aside>', '<aside class="sidebar">侧栏<div class="ad-slot">买它</div><ins class="adsbygoogle" data-ad-client="ca-pub-1"></ins></aside><form action="/search" method="get"><input name="q"></form><div class="header-download">下载客户端</div>');
+	const { html } = await styledHtml(page, 'https://example.com/post/1', { fetchImpl: fakeFetch() });
+	const { document } = parseHTML(html);
+	assert.ok(document.querySelector('nav.navbar'), '导航留着');
+	assert.match(document.querySelector('aside.sidebar').textContent, /侧栏/);
+	assert.ok(!document.querySelector('.ad-slot'));
+	assert.ok(!document.querySelector('ins'));
+	assert.doesNotMatch(html, /买它/);
+	assert.ok(document.querySelector('.header-download'), 'download 里的 ad 不是整词，不算广告');
+	const form = document.querySelector('form');
+	assert.ok(form && form.querySelector('input[name="q"]'));
+	assert.equal(form.getAttribute('action'), null);
+	assert.match(html, /form-action 'none'/);
+	// 侧栏在页面上，它的样式也留着；脚本照样删干净
+	assert.match(document.querySelector('style').textContent, /\.sidebar\{float:left\}/);
+	assert.ok(!document.querySelector('script'));
+	assert.doesNotMatch(html, /onmouseover|javascript:/);
+	// 整页存不补出处那行，也不加只存正文时的修正样式
+	assert.ok(!document.querySelector('.web-extract-meta'));
+	assert.doesNotMatch(html, /data-web-extract-chain/);
+});
+
+test('整页存：浏览器里 display:none 的元素删掉，<svg> 里的不碰', async () => {
+	const { document } = parseHTML(PAGE.replace('<aside class="sidebar">侧栏</aside>', '<aside class="sidebar">侧栏<div class="login-modal">登录框</div></aside>'));
+	// linkedom 没有计算样式，这里装一个：登录框和图标 sprite 都是 display:none
+	Object.defineProperty(document, 'defaultView', {
+		value: {
+			getComputedStyle: (el) => ({
+				display: /login-modal/.test(el.getAttribute('class') ?? '') || el.getAttribute('style') === 'display:none' ? 'none' : 'block',
+			}),
+		},
+	});
+	const snap = snapshotDocument(document, 'https://example.com/post/1');
+	assert.doesNotMatch(snap.body, /登录框/);
+	assert.match(snap.body, /<symbol id="icon-star">/, 'sprite 在 <svg> 里，不按 display:none 删');
+});
+
+test('整页存：站点广告位（豆瓣的 dale_）删掉；规则的 prepare 也跑（豆瓣配图从 JSON 造出来）', async () => {
+	const page = `<!DOCTYPE html><html><head><title>王逅逅的广播</title></head><body>
+<div id="dale_update_top_right">广告</div>
+<div class="new-status from-detail"><div class="status-item"><div class="mod"><div class="bd sns"><div class="status-saying"><blockquote><p>正文</p></blockquote>
+<div class="attachments-saying"><script>var photos = [{"image":{"large":{"url":"https://img3.doubanio.com/view/status/l/public/x.jpg"}}}];</script></div>
+</div></div></div></div></div></body></html>`;
+	const { html } = await styledHtml(page, 'https://www.douban.com/people/a/status/1/', { fetchImpl: fakeFetch() });
+	assert.doesNotMatch(html, /dale_|广告/);
+	assert.match(html, /<img [^>]*src="https:\/\/img3\.doubanio\.com\/view\/status\/l\/public\/x\.jpg"/);
+	// 豆瓣别的页面（电影条目）一样去广告
+	const movie = await styledHtml('<html><body><div id="dale_movie_subject_top_right">广告</div><div id="info">导演</div></body></html>', 'https://movie.douban.com/subject/1/', { fetchImpl: fakeFetch() });
+	assert.doesNotMatch(movie.html, /广告/);
+	assert.match(movie.html, /导演/);
+});
+
+test('整页存：<iframe> 换成一样大的空块，版面不塌；广告位里的 iframe 跟着广告一起删', async () => {
+	const page = '<html><body><div class="hero"><div class="login"><iframe src="https://accounts.example.com/login" width="300" height="320" class="lf"></iframe></div></div><div class="ad-box"><iframe src="https://ads.example.com/x"></iframe></div></body></html>';
+	const { html } = await styledHtml(page, 'https://example.com/', { fetchImpl: fakeFetch() });
+	const { document } = parseHTML(html);
+	assert.ok(!document.querySelector('iframe'));
+	const box = document.querySelector('.login > div[data-web-extract-frame]');
+	assert.ok(box);
+	assert.equal(box.getAttribute('class'), 'lf');
+	assert.match(box.getAttribute('style'), /width:300px;height:320px/);
+	assert.equal(document.querySelectorAll('[data-web-extract-frame]').length, 1);
+});
+
+test('--assets：CSS 和行内 style 里的背景图也存到本地，字体不存', async () => {
+	const dir = mkdtempSync(join(tmpdir(), 'web-extract-assets-'));
+	try {
+		const page = '<html><head><style>.logo{background:url(/img/logo.jpg)}@font-face{font-family:F;src:url(/f.woff2)}.logo{font-family:F}</style></head><body><div class="logo" style="background-image:url(/img/hero.jpg)">豆瓣</div></body></html>';
+		const log = [];
+		const { html, stats } = await styledHtml(page, 'https://example.com/', {
+			fetchImpl: fakeFetch(log),
+			assetsDir: join(dir, 'files'),
+			assetsHref: 'files',
+		});
+		assert.equal(stats.saved, 2);
+		assert.match(html, /\.logo\{background:url\(files\/[0-9a-f]{16}\.jpg\)\}/);
+		assert.match(html, /style="background-image:url\(files\/[0-9a-f]{16}\.jpg\)"/);
+		assert.match(html, /url\(https:\/\/example\.com\/f\.woff2\)/);
+		assert.ok(!log.some((e) => e.url.endsWith('.woff2')));
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

@@ -247,4 +247,5 @@ test('CLI：--html 输出单文件 HTML，体积走 stderr；--assets 的相对�
 
 	assert.equal((await cli(['parse', 'x.html', '--assets', 'd'])).code, 2, '--assets 要配 --html');
 	assert.equal((await cli(['parse', 'x.html', '--html', '--md'])).code, 2);
+	assert.equal((await cli(['parse', 'x.html', '--article'])).code, 2, '--article 要配 --html');
 });
