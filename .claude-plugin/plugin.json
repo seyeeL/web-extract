@@ -1,12 +1,12 @@
 {
   "name": "web-extract",
   "version": "0.1.0",
-  "description": "Extract clean Markdown from web pages, with site rules for WeChat, Weibo, Xiaohongshu and X/Twitter.",
+  "description": "Extract clean Markdown from web pages, or save them as a single HTML file with the site's own styles. Site rules for WeChat, Weibo, Xiaohongshu, X/Twitter, Zhishi Xingqiu (zsxq), GitHub Gist and Douban.",
   "author": {
     "name": "seyeeL",
     "url": "https://github.com/seyeeL"
   },
   "repository": "https://github.com/seyeeL/web-extract",
   "license": "PolyForm-Noncommercial-1.0.0",
-  "keywords": ["markdown", "web-clipper", "readability", "wechat", "weibo", "xiaohongshu", "twitter"]
+  "keywords": ["markdown", "html", "web-clipper", "readability", "singlefile", "wechat", "weibo", "xiaohongshu", "twitter", "zsxq", "gist", "douban"]
 }

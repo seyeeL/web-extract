@@ -8,7 +8,7 @@
     {
       "name": "web-extract",
       "source": "./",
-      "description": "Extract clean Markdown from web pages with the web-extract CLI",
+      "description": "Extract clean Markdown, or a styled single-file HTML, from web pages with the web-extract CLI",
       "version": "0.1.0"
     }
   ]
