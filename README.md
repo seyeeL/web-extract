@@ -1,8 +1,13 @@
 # web-extract
 
-提取网页正文，转成干净的 Markdown，同时给出标题、作者、发布时间；也能存成带原站样式的单文件 HTML（去广告、只留用到的 CSS）。
+把网页存成两种格式：
 
-Extract the main content of a web page as clean Markdown, with title, author and publish date. Default rules that work on most article pages, plus hand-written site rules where they fall short: WeChat 公众号, 微博 (Weibo), 小红书 (Xiaohongshu), X/Twitter, 知识星球 (zsxq), GitHub Gist and 豆瓣广播 (Douban statuses). `--html` saves the page with the site's own styles (ads, scripts and unused CSS stripped) as a single small HTML file.
+- **Markdown**（`--md`）：只留正文，标题、作者、发布时间单独给出
+- **HTML**（`--html`）：保留原站样式，去掉广告和脚本，存成一个文件
+
+大部分文章页用默认规则就行；公众号、微博、小红书、X、知识星球、GitHub Gist、豆瓣广播有专门的站点规则。
+
+Save a web page as **Markdown** (main content only, with title, author and publish date) or as **HTML** (the site's own styles kept, ads and scripts removed, one file). Default rules cover most article pages; WeChat, Weibo, Xiaohongshu, X/Twitter, zsxq, GitHub Gist and Douban have their own site rules.
 
 一份代码三种用法：
 
