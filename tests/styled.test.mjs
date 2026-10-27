@@ -374,3 +374,23 @@ test('图片轮播：只有一张就不加控件，也不补轮播样式', async
 	assert.equal(document.querySelector('input[type="radio"]'), null);
 	assert.doesNotMatch(html, /web-extract-carousel/);
 });
+
+test('styled-core.js 不碰 Node：只 import 同目录文件；不给 parseDocument 就报错；没有 Buffer 时 base64 照样对', async () => {
+	const { readFileSync } = await import('node:fs');
+	const source = readFileSync(new URL('../src/styled-core.js', import.meta.url), 'utf8');
+	const imports = Array.from(source.matchAll(/^import .* from '([^']+)';$/gm), (m) => m[1]);
+	assert.ok(imports.length > 0 && imports.every((spec) => spec.startsWith('./')), imports.join(' '));
+
+	const core = await import('../src/styled-core.js');
+	const snap = snapshotDocument(parseHTML(PAGE).document, 'https://example.com/post/1');
+	await assert.rejects(core.buildStyledHtml(snap, { fetchImpl: fakeFetch() }), /parseDocument/);
+
+	const saved = globalThis.Buffer;
+	globalThis.Buffer = undefined;
+	try {
+		const store = core.embedStore();
+		assert.equal(store.put(new Uint8Array([0xff, 0xd8, 0xff]), { mime: 'image/jpeg' }), 'data:image/jpeg;base64,/9j/');
+	} finally {
+		globalThis.Buffer = saved;
+	}
+});

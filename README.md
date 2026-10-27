@@ -157,7 +157,10 @@ const result = await extractUrlInBrowser('https://x.com/u/status/123');
 
 浏览器模式会把 `src/site-rules.js`、`html2md.js`、`extract.js`、`snapshot.js`、`result.js`、`dump.js` 去掉 import / export 拼成一段脚本注进页面，所以这几个文件的 import **只能写单行**，顶层名字不能互相重名（`tests/cli.test.mjs` 里有用例守着）。
 
-扩展这类没有打包工具的下游可以直接复制 `src/extract.js`、`src/html2md.js`、`src/site-rules.js` 三个文件用。复制过去别在下游改，改这里再同步。
+扩展这类没有打包工具的下游可以直接复制 `src/extract.js`、`src/html2md.js`、`src/site-rules.js` 三个文件用。
+要在浏览器里存带样式的 HTML，再加 `src/snapshot.js`（页面里取材料）、`src/css.js`、`src/styled-core.js`（拼文件，
+不依赖 Node，`parseDocument` 传 `DOMParser`，图片用 `embedStore()` / `uploadStore(上传函数)`）。
+复制过去别在下游改，改这里再同步。
 
 ## Agent Skill
 
