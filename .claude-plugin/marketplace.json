@@ -8,7 +8,7 @@
     {
       "name": "web-extract",
       "source": "./",
-      "description": "Save web pages as Markdown (main content only) or HTML (site styles kept) with the web-extract CLI",
+      "description": "Save web pages as Markdown (main content only) or HTML (site styles kept, carousels, embedded or re-hosted images) with the web-extract CLI",
       "version": "0.1.0"
     }
   ]

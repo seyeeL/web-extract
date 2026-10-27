@@ -1,12 +1,12 @@
 {
   "name": "web-extract",
   "version": "0.1.0",
-  "description": "Save web pages as Markdown (main content only) or HTML (site styles kept, ads removed). Site rules for WeChat, Weibo, Xiaohongshu, X/Twitter, zsxq, GitHub Gist and Douban.",
+  "description": "Save web pages as Markdown (main content only) or HTML (site styles kept, ads removed, image carousels still swipe, images embedded or re-hosted on your own image host). Site rules for WeChat, Weibo, Xiaohongshu, X/Twitter, zsxq, GitHub Gist and Douban.",
   "author": {
     "name": "seyeeL",
     "url": "https://github.com/seyeeL"
   },
   "repository": "https://github.com/seyeeL/web-extract",
   "license": "PolyForm-Noncommercial-1.0.0",
-  "keywords": ["markdown", "html", "web-clipper", "readability", "singlefile", "wechat", "weibo", "xiaohongshu", "twitter", "zsxq", "gist", "douban"]
+  "keywords": ["markdown", "html", "web-clipper", "readability", "singlefile", "image-host", "oss", "wechat", "weibo", "xiaohongshu", "twitter", "zsxq", "gist", "douban"]
 }

@@ -1,2 +1,5 @@
 node_modules/
 *.local.json
+# 图床密钥这类本机配置，公开仓库，别提交
+.env
+.env.*

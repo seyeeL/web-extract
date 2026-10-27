@@ -132,6 +132,18 @@ web-extract 走默认规则提取正文，大部分文章页不用配置就能�
 实测 2026-08-20 五条笔记（图文 / 视频 / 有标题 / 无标题 / 带表情各一条），正文、作者、
 时间、九宫格配图都对。
 
+**`--html` 整页存**（2026-10-27）：笔记页是盖在发现页推荐流上的一个浮层，整页存就是这个样子，
+和 SingleFile 一样。在这之上多做了三件事：
+
+- 图片轮播换成纯 CSS 的，存下来能左右翻（见 [styled-html.md](styled-html.md#图片轮播)）；小红书自己的
+  页码、箭头、圆点（`.fraction`、`.arrow-controller`、`.slider-pagination-container`）在 `styledDrop` 里删掉
+- 没登录时盖在页面上的登录框（`.login-modal`）、被风控时的扫码验证框（`.fe-captcha-app`）也删
+- `--load-comments` 先把评论往下翻、楼中楼点开（`expand: xhsExpandComments`）。**小红书有风控**，
+  翻太快账号会被要求扫码验证，所以默认不开、每步 3–5 秒、弹验证就停，见
+  [styled-html.md](styled-html.md#评论区)
+
+图片地址带签名，几天后失效，存 HTML 时配 `--embed-images` 或 `--upload-images`。
+
 **必须在登录态下用。** 干净 profile 打开笔记页会被风控挡掉，跳转到
 `website-login/error?error_code=300012`（「IP存在风险，请切换可靠网络环境后重试」）。
 `--browser` 起的是一次性的干净 profile，抓小红书只会拿到那张拦截页，得在自己已登录的

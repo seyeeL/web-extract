@@ -37,10 +37,23 @@ export function extractExpression(options = {}) {
 	return `(() => { ${pageBundle()}\n return JSON.stringify(extractDocument(document, location.href, ${opts})); })()`;
 }
 
-/** 在页面里收带样式 HTML 的材料（要存的 <body> + 样式表清单），返回 JSON 字符串。 */
+/**
+ * 在页面里收带样式 HTML 的材料（要存的 <body> + 样式表清单），返回 JSON 字符串。
+ * loadComments 时先跑规则的 expand（小红书往下翻评论），它要等网络，所以整段是 async 的。
+ * 默认不跑：翻评论是在页面上替人点，站点有风控（见 site-rules.js 的 xhsExpandComments）。
+ */
 export function snapshotExpression(options = {}) {
-	const opts = JSON.stringify({ withReplies: options.withReplies === true, articleOnly: options.articleOnly === true });
-	return `(() => { ${pageBundle()}\n return JSON.stringify(snapshotDocument(document, location.href, ${opts})); })()`;
+	const opts = JSON.stringify({
+		withReplies: options.withReplies === true,
+		articleOnly: options.articleOnly === true,
+		loadComments: options.loadComments === true,
+	});
+	return `(async () => { ${pageBundle()}
+ const opts = ${opts};
+ const note = opts.loadComments ? await snapExpand(document, location.href) : '';
+ const snap = snapshotDocument(document, location.href, opts);
+ snap.notes = note ? [note] : [];
+ return JSON.stringify(snap); })()`;
 }
 
 /** 在页面里跑诊断的表达式，返回 JSON 字符串。 */

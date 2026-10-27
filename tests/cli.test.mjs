@@ -66,6 +66,7 @@ test('注入页面用的拼接脚本能直接执行，结果和 Node 侧一致',
 	assert.doesNotThrow(() => new Function(`return ${extractExpression({ plain: true })}`));
 	assert.doesNotThrow(() => new Function(`return ${dumpExpression()}`));
 	assert.doesNotThrow(() => new Function(`return ${snapshotExpression({ withReplies: true })}`));
+	assert.doesNotThrow(() => new Function(`return ${snapshotExpression({ loadComments: true, articleOnly: true })}`));
 });
 
 test('提取结果：元信息、markdown、噪声过滤', () => {
@@ -250,4 +251,42 @@ test('CLI：--html 输出单文件 HTML，体积走 stderr；--assets 的相对�
 	assert.equal((await cli(['parse', 'x.html', '--article'])).code, 2, '--article 要配 --html');
 	assert.equal((await cli(['parse', 'x.html', '--embed-images'])).code, 2);
 	assert.equal((await cli(['parse', 'x.html', '--html', '--embed-images', '--assets', 'd'])).code, 2);
+	assert.equal((await cli(['parse', 'x.html', '--upload-images'])).code, 2, '--upload-images 要配 --html');
+	assert.equal((await cli(['parse', 'x.html', '--html', '--upload-images', '--embed-images'])).code, 2);
+	assert.equal((await cli(['parse', 'x.html', '--html', '--load-comments'])).code, 2, '--load-comments 要浏览器');
+});
+
+test('CLI：--upload-images 读图床配置（WEB_EXTRACT_ENV 指的文件），没配就在抓页面之前报用法错误', async () => {
+	const server = createServer((req, res) => {
+		res.writeHead(req.url === '/pic.png' ? 200 : 404, { 'content-type': 'image/png' });
+		res.end('png');
+	});
+	await new Promise((r) => server.listen(0, '127.0.0.1', r));
+	const base = `http://127.0.0.1:${server.address().port}`;
+	const saved = process.env.WEB_EXTRACT_ENV;
+	try {
+		await withTempDir(async (dir) => {
+			const file = join(dir, 'page.html');
+			writeFileSync(file, ARTICLE.replace('<ul>', '<p><img src="/pic.png"></p><ul>'));
+
+			process.env.WEB_EXTRACT_ENV = join(dir, 'missing.env');
+			const missing = await cli(['parse', file, '--html', '--url', `${base}/post/1`, '--upload-images']);
+			assert.equal(missing.code, 2);
+			assert.match(missing.err, /没配图床/);
+
+			const env = join(dir, 'image-host.env');
+			const command = `node -e "console.log('https://img.example.com/' + require('path').basename(process.argv[1]))" {file}`;
+			// 命令里有单引号，值用反引号括起来
+			writeFileSync(env, `WEB_EXTRACT_IMAGE_HOST=command\nWEB_EXTRACT_UPLOAD_COMMAND=\`${command}\`\n`);
+			process.env.WEB_EXTRACT_ENV = env;
+			const ok = await cli(['parse', file, '--html', '--url', `${base}/post/1`, '--upload-images']);
+			assert.equal(ok.code, 0, ok.err);
+			assert.match(ok.out, /<img src="https:\/\/img\.example\.com\/[0-9a-f]{16}\.png">/);
+			assert.match(ok.err, /传到图床 1 张图/);
+		});
+	} finally {
+		if (saved === undefined) delete process.env.WEB_EXTRACT_ENV;
+		else process.env.WEB_EXTRACT_ENV = saved;
+		server.close();
+	}
 });

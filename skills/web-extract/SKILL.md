@@ -1,6 +1,6 @@
 ---
 name: web-extract
-description: Save a web page as Markdown (title, author, publish date, main content) or as HTML (site styles kept, ads removed, one file) with the web-extract CLI. Prefer over WebFetch when you need the article itself - it strips navigation, ads, comments and recommendation lists, and has site rules for WeChat 公众号 (mp.weixin.qq.com), 微博, 小红书, X/Twitter, 知识星球 (wx.zsxq.com), GitHub Gist and 豆瓣广播. Use --browser for JS-rendered pages.
+description: Save a web page as Markdown (title, author, publish date, main content) or as HTML (site styles kept, ads removed, one file; image carousels still switch; images can be embedded as base64 or re-hosted on the user's own image host) with the web-extract CLI. Prefer over WebFetch when you need the article itself - it strips navigation, ads, comments and recommendation lists, and has site rules for WeChat 公众号 (mp.weixin.qq.com), 微博, 小红书, X/Twitter, 知识星球 (wx.zsxq.com), GitHub Gist and 豆瓣广播. Use --browser for JS-rendered pages.
 ---
 
 # web-extract
@@ -75,7 +75,17 @@ cat page.html | web-extract parse - --md
 | （不带） | 清洗后的正文 HTML |
 | `-p <name>` | 单个字段 |
 | `--plain` | 配合 `--md`：去掉所有格式标记，只留文字和图片（排版坏掉的页面用） |
-| `--html` | 带原站样式的单文件 HTML（用户要「保留原网站样式」「存成网页」时用），配 `-o page.html`。默认整页只去广告；只要正文加 `--article`；图片打不开的站点（豆瓣、微博）再加 `--assets page_files` 把图存到本地，要单个文件发给别人用 `--embed-images` |
+| `--html` | 带原站样式的单文件 HTML（用户要「保留原网站样式」「存成网页」「像 SingleFile 那样剪藏」时用），配 `-o page.html`。默认整页只去广告；只要正文加 `--article`。多图轮播（小红书）存下来照样能左右翻 |
+
+`--html` 的图片三选一（不选就留远程地址，小红书的图片地址几天后失效，豆瓣、微博离开原站打不开）：
+
+| 参数 | 用在 |
+|------|------|
+| `--embed-images` | 图片塞进 HTML（base64），只出一个文件，大 |
+| `--upload-images` | 转存到用户自己的图床（阿里云 OSS 或自定义命令），一个文件、小、长期有效。要先配 `~/.config/web-extract/.env`，没配会报错，告诉用户看 `docs/image-host.md`，**别把密钥写进仓库** |
+| `--assets page_files` | 图片存到 HTML 旁边的目录 |
+
+小红书的评论：`--html --attach` 默认存页面上已经加载出来的那些（用户自己往下滚过的都在）。要自动往下翻、点开楼中楼加 `--load-comments`：每步 3–5 秒，最多 200 条，弹验证就停。**小红书有风控**，替人点太快会让账号被要求扫码验证，别反复跑。
 
 ## 抓得不对时
 

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "把网页存成 Markdown（只留正文）或 HTML（保留原站样式、去广告）。适配公众号、微博、小红书、X、知识星球、Gist、豆瓣。CLI + Agent Skill",
+  "description": "把网页存成 Markdown（只留正文）或 HTML（保留原站样式、去广告，多图可翻页，图片可转 base64 或转存图床）。适配公众号、微博、小红书、X、知识星球、Gist、豆瓣。CLI + Agent Skill",
   "license": "PolyForm-Noncommercial-1.0.0",
   "repository": {
     "type": "git",
@@ -15,7 +15,8 @@
   "exports": {
     ".": "./src/index.js",
     "./node": "./src/node.js",
-    "./browser": "./src/browser.js"
+    "./browser": "./src/browser.js",
+    "./image-host": "./src/image-host.js"
   },
   "files": [
     "bin",

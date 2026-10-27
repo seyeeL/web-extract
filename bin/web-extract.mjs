@@ -7,11 +7,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { dumpUrlInBrowser, extractUrlInBrowser, styledUrlInBrowser } from '../src/browser.js';
+import { createImageUploader, ImageHostError } from '../src/image-host.js';
 import { dumpHtml, extractHtml, fetchHtml, styledHtml, WECHAT_UA } from '../src/node.js';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
-const HELP = `web-extract —— 把网页存成 Markdown（只留正文）或 HTML（保留原站样式）
+const HELP = `web-extract —— 把网页存成 Markdown（只留正文）或 HTML（保留原站样式，图片可塞进文件或转存图床）
 
 用法:
   web-extract parse <url|文件|-> [选项]   提取正文
@@ -23,7 +24,8 @@ const HELP = `web-extract —— 把网页存成 Markdown（只留正文）或 H
   --html               带原站样式的单文件 HTML：整页去掉广告和脚本，CSS 只留用到的，图片留远程地址
   --article            --html 时只存正文（导航、侧栏、评论区都不要），上面补一行出处
   --assets <目录>      --html 时把图片下载到这个目录，HTML 里用相对路径引用（防盗链的站点用）
-  --embed-images       --html 时把图片塞进 HTML，只出一个文件（大，但好传）
+  --embed-images       --html 时把图片塞进 HTML（base64），只出一个文件（大，但好传）
+  --upload-images      --html 时把图片转存到自己的图床，HTML 里换成图床地址（配置见 docs/image-host.md）
   (不带)               清洗后的正文 HTML
   -p, --property <名>  只输出一个字段：title author publishedAt siteName domain url markdown html
   -o, --output <文件>  写进文件，不打到标准输出
@@ -41,6 +43,8 @@ const HELP = `web-extract —— 把网页存成 Markdown（只留正文）或 H
 
 内容:
   --plain              Markdown 去掉格式标记，只留文字和图片（排版坏掉的页面用）
+  --load-comments      --html 配 --browser / --attach 时，先在页面上把评论往下翻、楼中楼点开再存（目前只有小红书）。
+                       每步隔 3–5 秒，最多 200 条、5 分钟，弹验证就停：替人点太快会触发风控
   --no-replies         不收主贴底下的回复（只对写了 replies 的站点有效，比如 X）
 
   -h, --help           帮助
@@ -112,6 +116,8 @@ async function run(argv) {
 			article: { type: 'boolean' },
 			assets: { type: 'string' },
 			'embed-images': { type: 'boolean' },
+			'upload-images': { type: 'boolean' },
+			'load-comments': { type: 'boolean' },
 			property: { type: 'string', short: 'p' },
 			output: { type: 'string', short: 'o' },
 			browser: { type: 'boolean' },
@@ -160,7 +166,10 @@ async function run(argv) {
 	if (values.assets && !values.html) throw new UsageError('--assets 要配 --html');
 	if (values.article && !values.html) throw new UsageError('--article 要配 --html');
 	if (values['embed-images'] && !values.html) throw new UsageError('--embed-images 要配 --html');
-	if (values['embed-images'] && values.assets) throw new UsageError('--embed-images 和 --assets 二选一');
+	if (values['upload-images'] && !values.html) throw new UsageError('--upload-images 要配 --html');
+	if (values['load-comments'] && !(values.html && browser)) throw new UsageError('--load-comments 要配 --html 和 --browser / --attach');
+	const imageModes = ['assets', 'embed-images', 'upload-images'].filter((name) => values[name]);
+	if (imageModes.length > 1) throw new UsageError(`图片的存法只能选一种：${imageModes.map((n) => `--${n}`).join(' / ')}`);
 	if (values.html && (values.md || values.json || values.property)) {
 		throw new UsageError('--html 不能和 --md / --json / -p 一起用');
 	}
@@ -206,7 +215,21 @@ function kb(n) {
 
 /** --html：带样式的单文件 HTML。体积和抓不到的样式表、图片走 stderr。 */
 async function runStyled(input, values, options, { remote, browser }) {
-	const styledOptions = { ...options, articleOnly: values.article === true, embedImages: values['embed-images'] === true };
+	const styledOptions = {
+		...options,
+		articleOnly: values.article === true,
+		embedImages: values['embed-images'] === true,
+		loadComments: values['load-comments'] === true,
+	};
+	if (values['upload-images']) {
+		// 先把图床配置读出来：没配的话在抓页面之前就报错，不白等
+		try {
+			styledOptions.uploadImage = createImageUploader();
+		} catch (err) {
+			if (err instanceof ImageHostError) throw new UsageError(err.message);
+			throw err;
+		}
+	}
 	if (values.assets) {
 		// HTML 里引用图片的相对路径：从输出文件所在目录（没给 -o 就是当前目录）算到图片目录。
 		// Windows 的反斜杠换成 /，不然浏览器认不出
@@ -227,7 +250,7 @@ async function runStyled(input, values, options, { remote, browser }) {
 	const { stats } = result;
 	const notes = [
 		...result.warnings,
-		`HTML ${kb(stats.bytes)}（样式 ${kb(stats.cssBefore)} 裁到 ${kb(stats.cssAfter)}${stats.saved !== undefined ? `，${values['embed-images'] ? '塞进' : '存下'} ${stats.saved} 张图` : ''}）`,
+		`HTML ${kb(stats.bytes)}（样式 ${kb(stats.cssBefore)} 裁到 ${kb(stats.cssAfter)}${stats.saved !== undefined ? `，${values['upload-images'] ? '传到图床' : values['embed-images'] ? '塞进' : '存下'} ${stats.saved} 张图` : ''}）`,
 	];
 	return { text: result.html, outFile: values.output, warning: notes.join('\nweb-extract: ') };
 }

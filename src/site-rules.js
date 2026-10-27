@@ -55,6 +55,72 @@ export function upgradeTwimgImage(src) {
 	return url.toString();
 }
 
+const xhsSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 小红书弹了验证 / 登录框：再点下去就是在给风控送证据。 */
+function xhsChallenged(doc) {
+	const text = (sel) => Array.from(doc.querySelectorAll(sel)).map((el) => el.textContent ?? '').join(' ');
+	return /请通过验证|扫码验证|安全验证|滑块|captcha/i.test(text('[class*="verify"],[class*="captcha"],[class*="modal"],[class*="dialog"]')) ||
+		Boolean(doc.querySelector('.login-container, .login-modal'));
+}
+
+/**
+ * 小红书评论区一次只给十来条，往下滚才接着要；楼中楼收在「展开 N 条回复」后面。
+ * --load-comments 时存 HTML 之前在页面上把它们弄出来：滚到底等新的一批，不再长了就去点「展开」。
+ *
+ * 小红书有风控（2026-10-27 实测：1.2–1.8 秒一步，滚了约 40 次、点了 12 次「展开」，就弹了
+ * 「用小红书 APP 扫码验证身份」，封的是自己的登录账号）。所以：默认不跑，要显式打开；
+ * 每步 3–5 秒；有条数和总时长上限；每一步先看有没有弹验证 / 登录框，有就立刻停。
+ * 停下时存已经出来的那些。返回一句话说加载到哪了。
+ */
+export async function xhsExpandComments(doc, { budgetMs = 300_000, maxComments = 200, stepMs = 3000 } = {}) {
+	const box = doc.querySelector('.comments-container');
+	if (!box) return '';
+	const deadline = Date.now() + budgetMs;
+	const scroller = doc.querySelector('.note-scroller') ?? doc.scrollingElement;
+	const pause = () => xhsSleep(stepMs + Math.round(Math.random() * 2000));
+	const loaded = () => box.querySelectorAll('.comment-item').length;
+	const total = Number(/(\d+)/.exec(box.querySelector('.total')?.textContent ?? '')?.[1] ?? 0);
+	const ended = () => /THE END/i.test(box.querySelector('.end-container')?.textContent ?? '');
+	const stop = () => {
+		if (xhsChallenged(doc)) return '小红书弹了验证，立刻';
+		if (Date.now() > deadline) return '时间到';
+		if (loaded() >= maxComments) return `到了 ${maxComments} 条上限`;
+		return '';
+	};
+	let reason = stop();
+
+	// 一层：滚到底，连续几次不长了才算到头（网络慢时一批要两三秒才回来）
+	let last = -1;
+	let still = 0;
+	while (!reason && !ended() && still < 3) {
+		const count = loaded();
+		still = count === last ? still + 1 : 0;
+		last = count;
+		scroller.scrollTop = scroller.scrollHeight;
+		await pause();
+		reason = stop();
+	}
+
+	// 楼中楼：一个个点「展开 N 条回复 / 展开更多回复」，点完的按钮会消失或换字。
+	// 点一次没反应就不再点它（没反应多半是接口不给了，再点只会更像机器）
+	let clicks = 0;
+	const tried = new Set();
+	while (!reason) {
+		const button = Array.from(box.querySelectorAll('.show-more')).find((el) => !tried.has(el));
+		if (!button) break;
+		tried.add(button);
+		button.scrollIntoView?.({ block: 'center' });
+		button.click();
+		clicks += 1;
+		await pause();
+		reason = stop();
+	}
+	scroller.scrollTop = 0;
+	const of = total ? ` / ${total}` : '';
+	return `评论加载了 ${loaded()}${of} 条（点开楼中楼 ${clicks} 次${reason ? `，${reason}停下` : ''}）`;
+}
+
 /** /status/<推文 id> 里的那段 id。取不到返回空串。 */
 function statusIdFromUrl(url) {
 	try {
@@ -785,6 +851,18 @@ export const SITE_RULES = [
 		stripText: [/\[eoi\]/g],
 		// 正文的分段是文本里的 \n 加 CSS white-space，HTML 里没有 <p> 也没有 <br>
 		keepLineBreaks: ['#detail-desc'],
+		// --html 时删的：图片轮播自带的页码、左右箭头、圆点要 JS 才动，存下来换成纯 CSS 的那套；
+		// 没登录时盖在页面上的登录框、被风控时的扫码验证框
+		styledDrop: [
+			'.fraction',
+			'.arrow-controller',
+			'.slider-pagination-container',
+			'#copy-img-guide',
+			'.login-modal',
+			'.fe-captcha-app',
+		],
+		// --html --load-comments 时，先在页面上把评论往下翻、楼中楼点开（默认不翻，见 xhsExpandComments）
+		expand: xhsExpandComments,
 	},
 	{
 		name: 'X（推特）',

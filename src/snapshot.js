@@ -24,6 +24,8 @@ export const SNAPSHOT_CHAIN_ATTR = 'data-web-extract-chain';
 export const SNAPSHOT_FIXED_ATTR = 'data-web-extract-fixed';
 // 正文上面那行「标题 / 作者 · 时间 · 原文」的类名
 export const SNAPSHOT_META_CLASS = 'web-extract-meta';
+// 换成纯 CSS 轮播的图片轮播（Swiper）挂这个类名，Node 那边看到它才补轮播的样式
+export const SNAPSHOT_CAROUSEL_CLASS = 'web-extract-carousel';
 
 // 懒加载图片放真地址的属性，和 html2md 认的一样
 const SNAP_LAZY_SRC = ['data-src', 'data-original', 'data-actualsrc', 'data-lazy-src'];
@@ -440,6 +442,111 @@ export function snapFullBody(doc, rule, url = '') {
 }
 
 /**
+ * 图片轮播（Swiper）换成不用 JS 也能翻的版本。存下来的页面不许跑脚本（头上有 CSP），
+ * 原来那套靠 JS 挪 transform，只能停在当时那一张。
+ *
+ * 做法是单选框 + label：每张图前面放一个隐藏的 radio，左右箭头和圆点都是指向别的 radio 的
+ * label，点了就切过去；Node 那边补的 CSS 按「第 k 个 radio 没选中 → 第 k 张藏起来」显示当前那张。
+ * 箭头、页码、圆点放进每一张里，跟着那张一起显示，不用再按序号写规则。
+ *
+ * loop 模式首尾复制出来的那几张（swiper-slide-duplicate）去掉，按 data-swiper-slide-index 排回原顺序。
+ * 站点自己的箭头、页码要 JS 才动，在规则的 styledDrop 里删。
+ */
+export function snapCarousels(doc, body) {
+	let n = 0;
+	for (const wrapper of Array.from(body.querySelectorAll('.swiper-wrapper'))) {
+		const box = wrapper.parentElement;
+		if (!box || box.classList?.contains(SNAPSHOT_CAROUSEL_CLASS)) continue;
+		const all = Array.from(wrapper.children).filter((el) => el.classList?.contains('swiper-slide'));
+		if (!all.length) continue;
+		const order = (el) => Number(el.getAttribute('data-swiper-slide-index') ?? NaN);
+		// 当前那张：loop 模式下停在复制品上时，按它的序号找回真的那张
+		const activeEl = all.find((el) => el.classList.contains('swiper-slide-active'));
+		const slides = all.filter((el) => !el.classList.contains('swiper-slide-duplicate'));
+		if (slides.every((el) => Number.isFinite(order(el)))) slides.sort((a, b) => order(a) - order(b));
+		let active = slides.indexOf(activeEl);
+		if (active < 0 && activeEl) active = slides.findIndex((el) => order(el) === order(activeEl));
+		if (active < 0) active = 0;
+
+		// 只留真的那几张，transform 去掉（停在哪张由 CSS 管）
+		while (wrapper.firstChild) wrapper.removeChild(wrapper.firstChild);
+		for (const slide of slides) wrapper.appendChild(slide);
+		const style = String(wrapper.getAttribute('style') ?? '')
+			.split(';')
+			.filter((decl) => decl.trim() && !/^\s*(transform|transition-duration)\s*:/i.test(decl))
+			.join(';');
+		if (style) wrapper.setAttribute('style', style);
+		else wrapper.removeAttribute('style');
+		for (const name of ['swiper-button-prev', 'swiper-button-next', 'swiper-pagination', 'swiper-scrollbar']) {
+			for (const el of Array.from(box.parentElement?.querySelectorAll(`.${name}`) ?? [])) el.remove();
+		}
+		if (slides.length < 2) continue;
+
+		n += 1;
+		const id = (i) => `web-extract-c${n}-${i + 1}`;
+		box.classList.add(SNAPSHOT_CAROUSEL_CLASS);
+		const label = (i, cls, text, title) => {
+			const el = doc.createElement('label');
+			el.setAttribute('for', id(i));
+			el.setAttribute('class', cls);
+			if (title) el.setAttribute('title', title);
+			if (text) el.appendChild(doc.createTextNode(text));
+			return el;
+		};
+		slides.forEach((slide, i) => {
+			const radio = doc.createElement('input');
+			radio.setAttribute('type', 'radio');
+			radio.setAttribute('name', `web-extract-c${n}`);
+			radio.setAttribute('id', id(i));
+			radio.setAttribute('class', `${SNAPSHOT_CAROUSEL_CLASS}-radio`);
+			radio.setAttribute('aria-label', `第 ${i + 1} 张`);
+			if (i === active) radio.setAttribute('checked', '');
+			box.insertBefore(radio, wrapper);
+
+			slide.classList.add(`${SNAPSHOT_CAROUSEL_CLASS}-slide`);
+			// 藏起来的那几张是懒加载的话，点过去才开始下，要白一会儿
+			for (const img of Array.from(slide.querySelectorAll('img[loading]'))) img.removeAttribute('loading');
+			if (i > 0) slide.appendChild(label(i - 1, `${SNAPSHOT_CAROUSEL_CLASS}-prev`, '‹', '上一张'));
+			if (i < slides.length - 1) slide.appendChild(label(i + 1, `${SNAPSHOT_CAROUSEL_CLASS}-next`, '›', '下一张'));
+			const count = doc.createElement('span');
+			count.setAttribute('class', `${SNAPSHOT_CAROUSEL_CLASS}-count`);
+			count.appendChild(doc.createTextNode(`${i + 1}/${slides.length}`));
+			slide.appendChild(count);
+			const dots = doc.createElement('span');
+			dots.setAttribute('class', `${SNAPSHOT_CAROUSEL_CLASS}-dots`);
+			slides.forEach((_, j) => dots.appendChild(label(j, j === i ? 'on' : '', '', `第 ${j + 1} 张`)));
+			slide.appendChild(dots);
+		});
+	}
+	return n;
+}
+
+/** 规则里 styledDrop 点名的元素（站点自己那套要 JS 的控件）删掉。 */
+function snapStyledDrop(body, rule) {
+	for (const selector of rule?.styledDrop ?? []) {
+		try {
+			for (const el of Array.from(body.querySelectorAll(selector))) el.remove();
+		} catch {
+			// 选择器写错了不影响别的
+		}
+	}
+}
+
+/**
+ * 取材料之前在活页面上要做的事（规则的 expand）：小红书把评论翻到底、把楼中楼点开。
+ * 只在浏览器模式下跑（静态 HTML 里没有能点的东西）。返回一句说明，没做什么返回空串。
+ */
+export async function snapExpand(doc, url = '', options = {}) {
+	const rule = ruleFor(url);
+	if (typeof rule?.expand !== 'function') return '';
+	try {
+		return String((await rule.expand(doc, options)) ?? '');
+	} catch (err) {
+		return `展开评论时出错，存下已经出来的部分（${err?.message ?? err}）`;
+	}
+}
+
+/**
  * 带样式 HTML 的页面侧材料：元信息、<html> 的属性、要存的 <body>、样式表清单。
  * 返回的都是字符串和普通对象，能直接 JSON 化从页面里带出来。
  * @param {{withReplies?: boolean, articleOnly?: boolean}} [options] articleOnly：只存正文
@@ -449,7 +556,10 @@ export function snapshotDocument(doc, url = '', options = {}) {
 	const article = extractArticle(doc, url, { withReplies: options.withReplies === true, styled: true });
 	const base = article.url || url;
 	const articleOnly = options.articleOnly === true;
-	const body = articleOnly ? snapSkeleton(doc, article) : snapFullBody(doc, ruleFor(article.url), article.url);
+	const rule = ruleFor(article.url);
+	const body = articleOnly ? snapSkeleton(doc, article) : snapFullBody(doc, rule, article.url);
+	snapStyledDrop(body, rule);
+	snapCarousels(doc, body);
 	snapSvgSprites(doc, body);
 	snapSanitize(body, base, { keepForms: !articleOnly });
 	const viewport = doc.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? '';

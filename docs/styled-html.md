@@ -7,6 +7,7 @@ Markdown 只留文字结构，原站的排版、字体、配色都没了。有�
 web-extract parse <url> --browser --html -o page.html --assets page_files   # 整页，图片存到本地
 web-extract parse <url> --html --article -o page.html                       # 只存正文
 web-extract parse <url> --browser --html --embed-images -o page.html        # 图片塞进 HTML，只出一个文件
+web-extract parse <url> --attach --html --upload-images -o page.html        # 图片转存到自己的图床
 ```
 
 参考的是 [SingleFile](https://github.com/gildas-lormeau/SingleFile)（浏览器扩展，把整页存成一个 HTML），
@@ -34,6 +35,42 @@ web-extract parse <url> --browser --html --embed-images -o page.html        # �
 标题是拿正文开头凑的站点（微博、豆瓣广播、推文）不补。`<svg>` 留着，`<use href="#icon">` 引用的 sprite
 定义从页面别处找来一起带上。
 
+## 图片轮播
+
+Swiper 做的轮播（小红书多图笔记就是）靠 JS 挪 `transform` 换图，存下来不许跑脚本（头上有 CSP），
+原样留着就只能停在当时那一张。SingleFile 存出来也是这样。
+
+`src/snapshot.js` 的 `snapCarousels` 把它换成纯 CSS 的：
+
+- loop 模式首尾复制出来的几张（`swiper-slide-duplicate`）去掉，按 `data-swiper-slide-index` 排回原顺序；
+  `swiper-wrapper` 上的 `transform` 去掉
+- 每张前面一个隐藏的 `<input type=radio>`，当时停在哪张就选中哪个
+- 每张里面补上左右箭头、「2/4」页码、一排圆点，都是指向别的 radio 的 `<label>`，点了就切过去；
+  第一张没有「上一张」，最后一张没有「下一张」
+- Node 那边按页面上最多那个轮播的张数补规则：「第 k 个 radio 没选中 → 第 k 张 `display:none`」。
+  只藏不显，留下那张用的还是站点自己的 `display`
+- 藏起来的几张去掉 `loading="lazy"`，点过去不用等
+
+站点自己那套箭头、页码要 JS 才动，在规则的 `styledDrop` 里删（小红书：`.fraction`、`.arrow-controller`、
+`.slider-pagination-container`）。只有一张图的轮播只去掉复制品和 `transform`，不加控件。
+
+## 评论区
+
+整页存时评论区本来就在，存的是页面上当时已经加载出来的那些。小红书一次只给十来条，往下滚才接着要，
+楼中楼收在「展开 N 条回复」后面。
+
+`--load-comments`（要 `--browser` 或 `--attach`）在取材料之前先跑规则的 `expand`：小红书是
+`xhsExpandComments`，在笔记右边那栏滚到底等下一批，不再长了就一个个点「展开」。stderr 里报一句加载到哪了：
+
+```
+web-extract: 评论加载了 383 / 428 条（点开楼中楼 12 次）
+```
+
+**默认不开，开了也很慢**，因为小红书有风控：2026-10-27 第一版每步 1.2–1.8 秒，滚了约 40 次、点了 12 次
+「展开」后，小红书弹出「用小红书 APP 扫码验证身份」，页面掉了登录。现在每步 3–5 秒、最多 200 条、5 分钟，
+每一步先看有没有弹验证 / 登录框，有就立刻停下、存已经出来的；点一次没反应的「展开」不再点第二次。
+评论要得多，就在 `--attach` 的那个浏览器里自己往下滚，滚出来的都会存下来。
+
 ## 怎么控体积
 
 | 招数 | 来自 SingleFile 的哪个选项 | 做法 |
@@ -45,7 +82,7 @@ web-extract parse <url> --browser --html --embed-images -o page.html        # �
 | 重复的只留一份 | group-duplicate-stylesheets | 一模一样的内联样式表只留一份；一字不差的规则只留最后一条（层叠结果不变） |
 | 补懒加载图片 | load-deferred-images | 占位图换成 `data-src` 这类属性里的真地址 |
 | 压空白 | compress-html / compress-css | CSS 压空白、去注释；HTML 去注释 |
-| **图片默认不转 base64** | （SingleFile 默认转） | 留远程地址；要离线就 `--assets` 存成旁边目录里的文件，要单文件才 `--embed-images` |
+| **图片默认不转 base64** | （SingleFile 默认转） | 留远程地址；要离线就 `--assets` 存成旁边目录里的文件，要单文件才 `--embed-images`，要单文件又要小用 `--upload-images` 转存图床 |
 
 实测（2026-10-15）：
 
@@ -61,6 +98,10 @@ web-extract parse <url> --browser --html --embed-images -o page.html        # �
 | overreacted.io | `--article`，静态 | 26.5 KB → 15.9 KB | 114.9 KB（代码高亮的 span 占大头） |
 | 微博 | `--article --browser --assets` | 868.3 KB → 19.9 KB | 23.9 KB + 2 张图 |
 | X 推文（带引用推） | `--article --browser` | 321.3 KB → 45.7 KB | 57.9 KB |
+| 小红书笔记（4 张图，383 条评论已加载） | 整页，`--attach` | 534.8 KB → 48.3 KB | 1.5 MB（评论区几百条的 DOM 占大头） |
+| 同上 | 整页，`--attach --embed-images` | 同上 | 7.6 MB，419 张图（大头是评论头像和背后推荐流的封面） |
+
+实测是 2026-10-27。
 
 公众号那 3 MB 里大头是同一套 weui 变量定义被五个样式表各带一份（一份 7 KB），加上几百个没人用的
 CSS 变量。去重和删变量之前裁完还有 222 KB。
@@ -90,7 +131,7 @@ CSS 变量。去重和删变量之前裁完还有 222 KB。
 - 头上一行 CSP：`script-src 'none'`、`form-action 'none'`，漏网的也跑不起来、提交不出去
 - CSS 里的 `</style` 转义，不能把 `<style>` 提前关掉
 - 样式表单个 5 MB、总共 20 MB、最多 100 个、`@import` 最多 5 层、总共 60 秒；`@media` 嵌套超过 32 层
-  不再往里拆；图片单张 20 MB、最多 300 张，回来的不是图片（防盗链给的报错页）不存
+  不再往里拆；图片单张 20 MB、最多 1000 张，回来的不是图片（防盗链给的报错页）不存
 
 ## 图片和防盗链
 
@@ -100,10 +141,17 @@ CSS 变量。去重和删变量之前裁完还有 222 KB。
 存成 `<sha1>.jpg` 这样的文件，HTML 里用相对路径引用，`srcset` 去掉（不然浏览器还是挑远程那张）。
 `<img>`、视频封面、CSS 和行内 style 里的背景图（豆瓣首页的 logo、导航都是背景图）都存。
 
+小红书的图片地址带签名（`sns-webpic-qc.xhscdn.com/<时间>/<签名>/…`），几天后就 403，留远程地址等于没存。
+这类站点要 `--embed-images` 或 `--upload-images`。
+
 手机上传来传去时，一个 HTML 加一个图片目录不方便，可以用 `--embed-images`：同样带 Referer 下载，
 但塞进 HTML 当 `data:` URI（单张 5 MB、总共 30 MB 封顶，超了的留远程地址）。体积会大很多：
 豆瓣那条广播 `--assets` 是 32 KB + 22 张图（约 350 KB），`--embed-images` 是一个 540 KB 的文件。
 默认不开，和 `--assets` 二选一。
+
+`--upload-images` 转存到自己的图床（阿里云 OSS，或者 PicGo 这类自定义命令），HTML 里换成图床地址：
+一个文件、体积小、长期有效。配置不进仓库，见 [image-host.md](image-host.md)。三种存法只能选一种。
+存图上限：单张 20 MB（塞进 HTML 时 5 MB），最多 1000 张（小红书一条热门笔记几百条评论，每条一个头像）。
 
 字体不存，仍是远程地址：一套字体几 MB，不值。字体跨域要 CORS，原站没开就退回系统字体。
 

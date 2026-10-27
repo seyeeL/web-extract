@@ -10,6 +10,7 @@ import {
 	timeFromStatusId,
 	upgradeDoubanImage,
 	upgradeSinaImage,
+	xhsExpandComments,
 	upgradeTwimgImage,
 } from '../src/site-rules.js';
 // 回复那一段的版式是最终落进笔记的样子，直接按 markdown 断言
@@ -859,4 +860,18 @@ test('豆瓣配图：small 缩略图换成 l 档，头像和别的站不动', ()
 	assert.equal(upgradeDoubanImage('https://img3.doubanio.com/icon/up44602874-69.jpg'), 'https://img3.doubanio.com/icon/up44602874-69.jpg');
 	assert.equal(upgradeDoubanImage('https://example.com/view/status/small/a.jpg'), 'https://example.com/view/status/small/a.jpg');
 	assert.equal(upgradeDoubanImage('不是地址'), '不是地址');
+});
+
+test('小红书翻评论：弹了验证 / 登录框就一步都不做，原样说出来', async () => {
+	const { document } = parseHTML(`<html><body><div class="note-scroller"><div class="comments-container">
+<div class="total">共 428 条评论</div><div class="comment-item">一</div><div class="show-more">展开 5 条回复</div></div></div>
+<div class="fe-captcha-app"><div class="r-captcha-modal"><div class="captcha-modal-title">请通过验证</div></div></div></body></html>`);
+	let clicked = 0;
+	document.querySelector('.show-more').addEventListener('click', () => {
+		clicked += 1;
+	});
+	const note = await xhsExpandComments(document, { stepMs: 1 });
+	assert.equal(clicked, 0);
+	assert.equal(note, '评论加载了 1 / 428 条（点开楼中楼 0 次，小红书弹了验证，立刻停下）');
+	assert.equal(await xhsExpandComments(parseHTML('<html><body></body></html>').document), '');
 });

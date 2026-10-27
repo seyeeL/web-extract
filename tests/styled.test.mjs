@@ -284,3 +284,93 @@ test('embedImages：图片塞进 HTML 当 data: URI，不落盘；不是图片�
 	assert.match(html, /\.logo\{background:url\(data:image\/jpeg;base64,\/9j\/\)\}/);
 	assert.equal(stats.saved, 2);
 });
+
+test('uploadImage：图片传到图床，HTML 里换成图床地址；传失败的留远程地址', async () => {
+	const page = PAGE.replace('</article>', '<p><img src="/img/b.jpg" srcset="/img/b.jpg 1x, /img/b2.jpg 2x"></p></article>');
+	const seen = [];
+	const { html, stats, warnings } = await styledHtml(page, 'https://example.com/post/1', {
+		fetchImpl: fakeFetch(),
+		uploadImage: async (bytes, { mime, ext, url }) => {
+			seen.push({ mime, ext, url, size: bytes.byteLength });
+			if (url.endsWith('/b.jpg')) throw new Error('图床满了');
+			return `https://img.example.com/${seen.length}.${ext}`;
+		},
+	});
+	const { document } = parseHTML(html);
+	const imgs = Array.from(document.querySelectorAll('article img'));
+	assert.equal(imgs[0].getAttribute('src'), 'https://img.example.com/1.jpg');
+	assert.equal(imgs[1].getAttribute('src'), 'https://example.com/img/b.jpg');
+	assert.ok(imgs[1].getAttribute('srcset'), '没传成的那张 srcset 留着');
+	assert.deepEqual(seen[0], { mime: 'image/jpeg', ext: 'jpg', url: 'https://example.com/img/a.jpg', size: 3 });
+	assert.ok(warnings.some((w) => /b\.jpg 没存下来（图床满了）/.test(w)));
+	assert.equal(stats.saved, seen.length - 1);
+});
+
+// 小红书笔记的图片轮播：Swiper loop 模式，首尾各有复制品，当前停在第一张
+const XHS_PAGE = `<!DOCTYPE html><html><head><title>女生多练支撑类动作 - 小红书</title></head><body>
+<div id="noteContainer"><div class="media-container"><div class="xhs-slider-container"><div id="copy-img-guide"></div>
+<div class="swiper note-slider"><div class="swiper-wrapper" style="transition-duration: 0ms; transform: translate3d(-443px, 0px, 0px);">
+<div class="swiper-slide swiper-slide-duplicate" data-swiper-slide-index="2"><img src="https://ci.xhscdn.com/c.webp"></div>
+<div class="swiper-slide swiper-slide-active" data-swiper-slide-index="0"><img src="https://ci.xhscdn.com/a.webp" loading="eager"></div>
+<div class="swiper-slide" data-swiper-slide-index="1"><img src="https://ci.xhscdn.com/b.webp" loading="lazy"></div>
+<div class="swiper-slide swiper-slide-duplicate-prev" data-swiper-slide-index="2"><img src="https://ci.xhscdn.com/c.webp" loading="lazy"></div>
+<div class="swiper-slide swiper-slide-duplicate swiper-slide-duplicate-active" data-swiper-slide-index="0"><img src="https://ci.xhscdn.com/a.webp"></div>
+</div></div>
+<div class="fraction">1/3</div><div class="arrow-controller left"></div><div class="arrow-controller right"></div>
+<div class="slider-pagination-container"><div class="dot"></div></div>
+</div></div>
+<div class="note-scroller"><div id="detail-title">女生多练支撑类动作</div><div id="detail-desc">很多女生由于上肢力量弱，所以比较抗拒上肢训练，特别是闭链的支撑类动作。</div>
+<div class="comments-container"><div class="total">共 2 条评论</div><div class="comment-item">评论一</div><div class="comment-item">评论二</div></div></div></div>
+<div><div class="reds-modal login-modal"><div class="login-container">登录后推荐更懂你的笔记</div></div></div>
+</body></html>`;
+
+test('图片轮播换成纯 CSS 的：去掉复制品按原顺序排，每张带左右箭头、页码、圆点；站点自己的控件删掉', async () => {
+	const snap = snapshotDocument(parseHTML(XHS_PAGE).document, 'https://www.xiaohongshu.com/explore/69b8dd39000000001e00dde9');
+	const { document } = parseHTML(`<html>${snap.body}</html>`);
+	const box = document.querySelector('.swiper');
+	assert.ok(box.classList.contains('web-extract-carousel'));
+	const slides = Array.from(box.querySelectorAll('.swiper-wrapper > *'));
+	assert.deepEqual(slides.map((s) => s.querySelector('img').getAttribute('src').slice(-6)), ['a.webp', 'b.webp', 'c.webp']);
+	assert.ok(slides.every((s) => s.classList.contains('web-extract-carousel-slide')));
+	assert.equal(box.querySelector('.swiper-wrapper').getAttribute('style'), null, 'transform 去掉');
+	assert.equal(box.querySelectorAll('img[loading]').length, 0, '藏起来的几张不懒加载');
+
+	const radios = Array.from(box.querySelectorAll(':scope > input[type="radio"]'));
+	assert.deepEqual(radios.map((r) => r.id), ['web-extract-c1-1', 'web-extract-c1-2', 'web-extract-c1-3']);
+	assert.deepEqual(radios.map((r) => r.hasAttribute('checked')), [true, false, false]);
+	assert.ok(radios.every((r) => r.getAttribute('name') === 'web-extract-c1'));
+
+	// 第一张没有「上一张」，最后一张没有「下一张」
+	assert.equal(slides[0].querySelector('.web-extract-carousel-prev'), null);
+	assert.equal(slides[0].querySelector('.web-extract-carousel-next').getAttribute('for'), 'web-extract-c1-2');
+	assert.equal(slides[1].querySelector('.web-extract-carousel-prev').getAttribute('for'), 'web-extract-c1-1');
+	assert.equal(slides[2].querySelector('.web-extract-carousel-next'), null);
+	assert.equal(slides[1].querySelector('.web-extract-carousel-count').textContent, '2/3');
+	assert.deepEqual(
+		Array.from(slides[1].querySelectorAll('.web-extract-carousel-dots label')).map((l) => `${l.getAttribute('for')}${l.getAttribute('class') === 'on' ? '*' : ''}`),
+		['web-extract-c1-1', 'web-extract-c1-2*', 'web-extract-c1-3'],
+	);
+
+	// 小红书自己的页码、箭头、圆点、登录框都不要；评论原样留着
+	for (const sel of ['.fraction', '.arrow-controller', '.slider-pagination-container', '#copy-img-guide', '.login-modal']) {
+		assert.equal(document.querySelector(sel), null, sel);
+	}
+	assert.equal(document.querySelectorAll('.comment-item').length, 2);
+
+	// Node 那边按张数补规则：第 k 个 radio 没选中，第 k 张藏起来
+	const { html } = await styledHtml(XHS_PAGE, 'https://www.xiaohongshu.com/explore/69b8dd39000000001e00dde9', { fetchImpl: fakeFetch() });
+	assert.match(html, /\.web-extract-carousel>\.web-extract-carousel-radio:nth-of-type\(3\):not\(:checked\)~\.swiper-wrapper>\.web-extract-carousel-slide:nth-child\(3\)\{display:none!important\}/);
+	assert.doesNotMatch(html, /nth-of-type\(4\)/);
+	assert.doesNotMatch(html, /<script/i);
+});
+
+test('图片轮播：只有一张就不加控件，也不补轮播样式', async () => {
+	const one = XHS_PAGE.replace(/<div class="swiper-slide swiper-slide-duplicate[^"]*"[^>]*>.*?<\/div>\n?/g, '')
+		.replace(/<div class="swiper-slide" data-swiper-slide-index="1">.*?<\/div>\n/, '')
+		.replace(/<div class="swiper-slide swiper-slide-duplicate-prev"[^>]*>.*?<\/div>\n/, '');
+	const { html } = await styledHtml(one, 'https://www.xiaohongshu.com/explore/1', { fetchImpl: fakeFetch() });
+	const { document } = parseHTML(html);
+	assert.equal(document.querySelectorAll('.swiper-slide').length, 1);
+	assert.equal(document.querySelector('input[type="radio"]'), null);
+	assert.doesNotMatch(html, /web-extract-carousel/);
+});

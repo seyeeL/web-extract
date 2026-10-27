@@ -3,11 +3,11 @@
 把网页存成两种格式：
 
 - **Markdown**（`--md`）：只留正文，标题、作者、发布时间单独给出
-- **HTML**（`--html`）：保留原站样式，去掉广告和脚本，存成一个文件
+- **HTML**（`--html`）：保留原站样式，去掉广告和脚本，存成一个文件。多图轮播存下来照样能左右翻；图片可以塞进文件（base64）或者转存到自己的图床
 
 大部分文章页用默认规则就行；公众号、微博、小红书、X、知识星球、GitHub Gist、豆瓣广播有专门的站点规则。
 
-Save a web page as **Markdown** (main content only, with title, author and publish date) or as **HTML** (the site's own styles kept, ads and scripts removed, one file). Default rules cover most article pages; WeChat, Weibo, Xiaohongshu, X/Twitter, zsxq, GitHub Gist and Douban have their own site rules.
+Save a web page as **Markdown** (main content only, with title, author and publish date) or as **HTML** (the site's own styles kept, ads and scripts removed, one file; image carousels still switch, images embedded as base64 or re-hosted on your own image host). Default rules cover most article pages; WeChat, Weibo, Xiaohongshu, X/Twitter, zsxq, GitHub Gist and Douban have their own site rules.
 
 一份代码三种用法：
 
@@ -86,9 +86,19 @@ web-extract parse <url> --browser --html -o page.html --assets page_files   # �
 web-extract parse <url> --html --article -o page.html                       # 只存正文
 ```
 
-豆瓣、微博这类有防盗链的站点，离开原站图片打不开，加 `--assets <目录>` 把图片（含 CSS 背景图）下载到
-HTML 旁边，用相对路径引用；要只出一个文件（手机上好传）用 `--embed-images`，图片塞进 HTML，体积大不少。体积和抓不到的样式表报在 stderr。怎么裁、实测体积、边界：
-**[docs/styled-html.md](docs/styled-html.md)**。
+豆瓣、微博这类有防盗链的站点离开原站图片打不开，小红书的图片地址带签名、几天后失效。图片有三种存法：
+
+| 参数 | 做法 |
+|------|------|
+| `--assets <目录>` | 图片（含 CSS 背景图）下载到 HTML 旁边，用相对路径引用 |
+| `--embed-images` | 图片塞进 HTML（base64），只出一个文件，手机上好传，体积大不少 |
+| `--upload-images` | 转存到自己的图床（阿里云 OSS，或者 PicGo 这类自定义命令），HTML 里换成图床地址：一个文件、体积小、长期有效。配置放 `~/.config/web-extract/.env`，不进仓库，见 **[docs/image-host.md](docs/image-host.md)** |
+
+图片轮播（Swiper，小红书的多图笔记）存下来换成纯 CSS 的版本：左右箭头、页码、圆点都能点，不用脚本。
+小红书的评论区存的是页面上已经加载出来的那些；加 `--load-comments`（配 `--attach` / `--browser`）先在页面上
+往下翻、点开楼中楼再存，每步隔 3–5 秒、最多 200 条，弹验证就停（小红书有风控，翻太快账号会被要求扫码验证）。
+
+体积和抓不到的样式表报在 stderr。怎么裁、实测体积、边界：**[docs/styled-html.md](docs/styled-html.md)**。
 
 其它参数：
 
@@ -99,6 +109,7 @@ HTML 旁边，用相对路径引用；要只出一个文件（手机上好传）
 | `--headed` | 浏览器模式开真窗口（挪到屏幕外），不用 headless |
 | `--plain` | Markdown 去掉所有格式标记，只留文字、图片、列表和表格。给排版坏掉的页面用：公众号编辑器有把三千字正文塞进一个 `<h1>` 的，照标题渲染会压成一行 |
 | `--no-replies` | 不收主贴底下的回复（目前只有 X 的规则收回复，默认收） |
+| `--load-comments` | `--html` 配 `--browser` / `--attach` 时先在页面上把评论往下翻、楼中楼点开再存（目前只有小红书） |
 | `--url <地址>` | 输入是本地文件或标准输入（`-`）时，告诉提取器原始地址，决定命中哪条站点规则 |
 
 退出码：0 成功，1 抓取或运行出错，2 参数用错。
@@ -128,6 +139,10 @@ const fromUrl = await extractUrl('https://example.com/post', { plain: false });
 // 带样式的单文件 HTML（要联网抓样式表，所以是异步的）
 // articleOnly: true 只存正文，不给就整页（去广告）；assetsDir / embedImages 存图片
 const { html: page, warnings, stats } = await styledHtml(html, 'https://example.com/post');
+
+// 转存图床：读 ~/.config/web-extract/.env 的配置，见 docs/image-host.md
+import { createImageUploader } from 'web-extract/image-host';
+await styledHtml(html, url, { uploadImage: createImageUploader() });
 ```
 
 浏览器渲染：
@@ -167,7 +182,7 @@ Claude Code 里当插件装：
 |------|------|
 | 微信公众号 | 普通图文、纯文字分享、贴图三种版式；正文挂在 `share` 类名上也不误删 |
 | 微博 | 九宫格配图换原图；没有标题，取正文开头 |
-| 小红书 | 正文分段靠 `\n`；发布时间从 `__INITIAL_STATE__` 取；要登录态 |
+| 小红书 | 正文分段靠 `\n`；发布时间从 `__INITIAL_STATE__` 取；要登录态。`--html` 时多图能翻、评论区可以先翻开再存 |
 | X / Twitter | 按 URL 框出主推；引用推文、回复排成引用段；视频留封面；日期从推文 id 算 |
 | 知识星球 | 独立详情页和主页详情浮层都只收那一条主题；正文分段靠 `\n`；要登录态 |
 | GitHub Gist | 多文件都收，不带页头和评论；时间是创建时间（页头那个是「Last active」） |

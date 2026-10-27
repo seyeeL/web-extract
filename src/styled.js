@@ -5,9 +5,10 @@
 // linkedom 里跑，浏览器模式时注进页面跑，两条路交过来的东西长得一样。
 //
 // 图片默认留远程地址，不转 base64（SingleFile 那样一张图就能把文件撑到几 MB）。可是
-// 豆瓣、微博这类站点有防盗链，离开原站打不开，所以给了两条路：assetsDir 把图片下载到
-// HTML 旁边的目录里、用相对路径引用，HTML 本身仍然很小；embedImages 塞进 HTML 当 data: URI，
-// 文件大，但只有一个，手机上传来传去方便。
+// 豆瓣、微博这类站点有防盗链，小红书的图片地址带签名、过几天就失效，离开原站打不开，
+// 所以给了三条路：assetsDir 把图片下载到 HTML 旁边的目录里、用相对路径引用，HTML 本身仍然很小；
+// embedImages 塞进 HTML 当 data: URI，文件大，但只有一个，手机上传来传去方便；
+// uploadImage 转存到自己的图床（./image-host.js），HTML 小、单文件、图片地址长期有效。
 
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -17,7 +18,7 @@ import { parseHTML } from 'linkedom';
 
 import { absolutizeCssUrls, findImports, matchableSelector, shrinkCss } from './css.js';
 import { ruleFor } from './site-rules.js';
-import { SNAPSHOT_CHAIN_ATTR, SNAPSHOT_FIXED_ATTR, SNAPSHOT_META_CLASS } from './snapshot.js';
+import { SNAPSHOT_CAROUSEL_CLASS, SNAPSHOT_CHAIN_ATTR, SNAPSHOT_FIXED_ATTR, SNAPSHOT_META_CLASS } from './snapshot.js';
 
 // 单个样式表、全部样式表、@import 层数、样式表个数的上限：防一个页面引几百个 CSS
 // 或者 @import 套娃把抓取拖死
@@ -33,8 +34,9 @@ export const MAX_ASSET_BYTES = 20 * 1024 * 1024;
 // 图片塞进 HTML 时更紧：单张 5 MB，加起来 30 MB，超了的留远程地址
 export const MAX_EMBED_BYTES = 5 * 1024 * 1024;
 export const MAX_EMBED_TOTAL = 30 * 1024 * 1024;
-const MAX_ASSETS = 300;
-const ASSET_CONCURRENCY = 4;
+// 小红书一条热门笔记几百条评论，每条一个头像
+const MAX_ASSETS = 1000;
+const ASSET_CONCURRENCY = 6;
 
 const IMAGE_EXT = {
 	'image/jpeg': 'jpg',
@@ -62,6 +64,29 @@ const FIX_CSS = [
 	`.${SNAPSHOT_META_CLASS} p{margin:0;font-size:.9em;opacity:.65}`,
 	`.${SNAPSHOT_META_CLASS} a{color:inherit}`,
 ].join('');
+
+// 换成纯 CSS 的图片轮播（snapshot.js 的 snapCarousels）：第 k 个 radio 没选中就把第 k 张藏起来，
+// 箭头、页码、圆点浮在图上。规则按张数生成，到页面上最多那个轮播的张数为止
+function carouselCss(max) {
+	const c = `.${SNAPSHOT_CAROUSEL_CLASS}`;
+	const rules = [
+		`${c}{position:relative}`,
+		`${c}>${c}-radio{position:absolute;width:1px;height:1px;margin:0;opacity:0;pointer-events:none}`,
+		`${c}>.swiper-wrapper{transform:none!important;transition:none!important}`,
+		`${c}-slide{position:relative}`,
+		`${c}-prev,${c}-next{position:absolute;top:50%;z-index:5;width:32px;height:32px;margin-top:-16px;border-radius:50%;background:rgba(255,255,255,.92);box-shadow:0 1px 4px rgba(0,0,0,.25);color:#333;font:26px/29px sans-serif;text-align:center;cursor:pointer;user-select:none}`,
+		`${c}-prev{left:12px}`,
+		`${c}-next{right:12px}`,
+		`${c}-count{position:absolute;top:12px;right:12px;z-index:5;padding:2px 8px;border-radius:10px;background:rgba(0,0,0,.45);color:#fff;font:12px/18px sans-serif}`,
+		`${c}-dots{position:absolute;left:50%;bottom:12px;z-index:5;display:flex;gap:6px;padding:5px 7px;border-radius:9px;background:rgba(0,0,0,.28);transform:translateX(-50%)}`,
+		`${c}-dots label{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.5);cursor:pointer}`,
+		`${c}-dots label.on{background:#fff}`,
+	];
+	for (let k = 1; k <= max; k += 1) {
+		rules.push(`${c}>${c}-radio:nth-of-type(${k}):not(:checked)~.swiper-wrapper>${c}-slide:nth-child(${k}){display:none!important}`);
+	}
+	return rules.join('');
+}
 
 function escapeHtml(value) {
 	return String(value ?? '')
@@ -245,9 +270,10 @@ function selectorMatcher(doc) {
 
 /**
  * 下载图片，返回 原地址 → 新地址 的对照表。失败的不在表里（HTML 里留远程地址）。
- * 给了 dir 就存成文件，新地址是 href 下的相对路径；embed 为真就不落盘，新地址是 data: URI。
+ * 给了 upload 就传到图床，新地址是图床给的；给了 dir 就存成文件，新地址是 href 下的相对路径；
+ * embed 为真就不落盘，新地址是 data: URI。
  */
-async function downloadAssets(urls, { dir, href, embed = false, referer, fetchImpl, userAgent, timeoutMs }) {
+async function downloadAssets(urls, { dir, href, embed = false, upload, referer, fetchImpl, userAgent, timeoutMs }) {
 	const map = new Map();
 	const warnings = [];
 	let embedded = 0;
@@ -272,6 +298,12 @@ async function downloadAssets(urls, { dir, href, embed = false, referer, fetchIm
 				const ext = IMAGE_EXT[mime];
 				// 不是图片（防盗链给的 HTML 报错页、418 的那几个字节）就别存
 				if (!ext) throw new Error(`不是图片（${mime || '没有类型'}）`);
+				if (upload) {
+					const remote = await upload(bytes, { mime, ext, url });
+					if (!/^https?:\/\//i.test(String(remote ?? ''))) throw new Error('图床没给回地址');
+					map.set(url, remote);
+					continue;
+				}
 				if (embed) {
 					if (embedded + bytes.byteLength > MAX_EMBED_TOTAL) throw new Error('塞进 HTML 的图片总量超过上限');
 					embedded += bytes.byteLength;
@@ -323,9 +355,12 @@ function imageUrls(doc) {
  * 页面侧材料 → 完整的 HTML 文件。
  * @param {ReturnType<import('./snapshot.js').snapshotDocument>} snap
  * @param {{userAgent?: string, timeoutMs?: number, fetchImpl?: typeof fetch,
- *   assetsDir?: string, assetsHref?: string, embedImages?: boolean, now?: Date}} [options]
+ *   assetsDir?: string, assetsHref?: string, embedImages?: boolean,
+ *   uploadImage?: (bytes: Uint8Array, info: {mime: string, ext: string, url: string}) => Promise<string>,
+ *   now?: Date}} [options]
  *   assetsDir：图片下载到这个目录；assetsHref：HTML 里引用它们用的相对路径；
- *   embedImages：图片塞进 HTML（给了 assetsDir 时不生效）
+ *   embedImages：图片塞进 HTML；uploadImage：图片转存到图床，返回图床上的地址（见 ./image-host.js）。
+ *   三个给一个就行，同时给了按 uploadImage、assetsDir、embedImages 的顺序取第一个
  * @returns {Promise<{html: string, warnings: string[], stats: object}>}
  */
 export async function buildStyledHtml(snap, options = {}) {
@@ -333,12 +368,14 @@ export async function buildStyledHtml(snap, options = {}) {
 	const rule = ruleFor(snap.url);
 	// 图片和样式表都按原页面的身份去要：防盗链看 Referer（微博要 weibo.com 的）
 	const referer = rule?.imageReferer || snap.url;
-	const { css: rawCss, warnings } = await collectCss(snap.sheets, {
+	const { css: rawCss, warnings: cssWarnings } = await collectCss(snap.sheets, {
 		fetchImpl,
 		userAgent: options.userAgent,
 		referer: snap.url,
 		timeoutMs: options.timeoutMs,
 	});
+	// 页面那边说的话（评论加载到哪了）排在前面
+	const warnings = [...(snap.notes ?? []), ...cssWarnings];
 
 	// 拿最终那棵树来判断规则命中没有：<html> 的属性（主题类名）也算进去
 	const attrs = Object.entries(snap.htmlAttrs ?? {})
@@ -353,13 +390,15 @@ export async function buildStyledHtml(snap, options = {}) {
 	let css = shrinkCss(rawCss, selectorMatcher(doc), inlineStyles);
 
 	let assetStats = null;
-	if (options.assetsDir || options.embedImages) {
+	const upload = typeof options.uploadImage === 'function' ? options.uploadImage : null;
+	if (upload || options.assetsDir || options.embedImages) {
 		const styled = Array.from(doc.querySelectorAll('[style]'));
 		const cssImages = [css, ...styled.map((el) => el.getAttribute('style'))].flatMap(cssImageUrls);
 		const { map, warnings: assetWarnings } = await downloadAssets([...imageUrls(doc), ...cssImages], {
+			upload,
 			dir: options.assetsDir,
 			href: options.assetsHref ?? options.assetsDir ?? '',
-			embed: !options.assetsDir && options.embedImages === true,
+			embed: !upload && !options.assetsDir && options.embedImages === true,
 			referer,
 			fetchImpl,
 			userAgent: options.userAgent,
@@ -385,6 +424,9 @@ export async function buildStyledHtml(snap, options = {}) {
 		assetStats = { saved: map.size };
 	}
 
+	const carousels = Array.from(doc.querySelectorAll(`.${SNAPSHOT_CAROUSEL_CLASS} > .swiper-wrapper`));
+	const maxSlides = Math.max(0, ...carousels.map((el) => el.children.length));
+
 	const head = [
 		'<meta charset="utf-8">',
 		// 正文里的脚本已经删干净了，这一行是保险：漏网的事件属性、javascript: 地址也跑不起来
@@ -402,6 +444,7 @@ export async function buildStyledHtml(snap, options = {}) {
 		// </style 出现在 CSS 里会提前把 <style> 关掉，后面的东西就成了 HTML
 		css ? `<style>${css.replace(/<\/style/gi, '<\\/style')}</style>` : '',
 		snap.mode === 'article' ? `<style>${FIX_CSS}</style>` : '',
+		maxSlides ? `<style>${carouselCss(maxSlides)}</style>` : '',
 	].filter(Boolean).join('\n');
 
 	const saved = (options.now ?? new Date()).toISOString();
