@@ -72,6 +72,19 @@ WEB_EXTRACT_UPLOAD_COMMAND=picgo upload {file}
 - 退出码不是 0、60 秒没跑完、输出里没有地址，这张图就留原地址，stderr 里记一条
 - 命令里有单引号时，值用反引号括起来：``WEB_EXTRACT_UPLOAD_COMMAND=`node up.mjs '{file}'` ``
 
+## 存下来的页面图片裂了
+
+先单独打开一张图片的地址：
+
+- **打不开**：上传有问题（对象不是公共读、绑的域名没生效），看 stderr 里的报错
+- **能打开，放在页面里裂**：多半是跨域（CORS）。页面上的 `<img>` 带着 `crossorigin="anonymous"`（小红书的图都带）时，
+  浏览器按 CORS 去要图，图床不回 `Access-Control-Allow-Origin` 就拒收。原站的图床（xhscdn）回这个头，所以原页面没事；
+  自己的 OSS 默认不回。2026-10-27 起存 HTML 时会把 `crossorigin` 去掉（存下来的页面不跑脚本，用不着它），
+  **之前存的文件**里还带着：重新存一次，或者给 bucket 加一条跨域规则（OSS 控制台 → 数据安全 → 跨域设置，
+  来源 `*`、方法 `GET`），旧文件不用动就能显示
+- **防盗链**：bucket 开了 Referer 白名单又不允许空 Referer 的话，本地打开的文件（不带 Referer）会被拒。
+  存下来的页面都带 `<meta name="referrer" content="no-referrer">`，所以白名单里要勾「允许空 Referer」
+
 ## 失败了会怎样
 
 单张图下载不到、图床拒收，这张留原来的远程地址，stderr 记一条「图片 … 没存下来（原因）」，

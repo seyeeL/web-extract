@@ -144,6 +144,27 @@ web-extract 走默认规则提取正文，大部分文章页不用配置就能�
 
 图片地址带签名，几天后失效，存 HTML 时配 `--embed-images` 或 `--upload-images`。
 
+#### 把一条笔记存成 HTML
+
+1. 用带调试端口的 Chrome 打开小红书并登录（干净 profile 会被风控挡掉，见上面）：
+   `chrome --remote-debugging-port=9222 --user-data-dir=<一个专门的目录>`
+2. 在这个浏览器里打开笔记。想多存评论，就**自己**在右边那栏往下滚、点「展开 N 条回复」，滚出来的都会存下
+3. 存：
+
+   ```bash
+   web-extract parse "<笔记链接>" --attach --html --upload-images -o note.html   # 图片转存图床（先配好，见 image-host.md）
+   web-extract parse "<笔记链接>" --attach --html --embed-images -o note.html    # 图片塞进文件，不用图床，文件大
+   ```
+
+注意：
+
+- **别指望留远程地址**：不加这两个参数，图片几天后就 403
+- **`--load-comments` 慎用**：它替你滚评论、点展开，已经放慢到每步 3–5 秒、弹验证就停，但仍是脚本在点。
+  同一个账号别短时间反复跑；被要求扫码验证就停手，用小红书 APP 扫码恢复
+- **存下来的是整页**：笔记浮层连同背后的推荐流一起（和 SingleFile 一样）。`--embed-images` 时推荐流的封面、
+  几百个评论头像都会塞进去，一条热门笔记 7–8 MB；嫌大用 `--upload-images`
+- **视频笔记**只存封面，视频本身不存
+
 **必须在登录态下用。** 干净 profile 打开笔记页会被风控挡掉，跳转到
 `website-login/error?error_code=300012`（「IP存在风险，请切换可靠网络环境后重试」）。
 `--browser` 起的是一次性的干净 profile，抓小红书只会拿到那张拦截页，得在自己已登录的

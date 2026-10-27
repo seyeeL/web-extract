@@ -95,6 +95,7 @@ web-extract parse <url> --html --article -o page.html                       # �
 | `--upload-images` | 转存到自己的图床（阿里云 OSS，或者 PicGo 这类自定义命令），HTML 里换成图床地址：一个文件、体积小、长期有效。配置放 `~/.config/web-extract/.env`，不进仓库，见 **[docs/image-host.md](docs/image-host.md)** |
 
 图片轮播（Swiper，小红书的多图笔记）存下来换成纯 CSS 的版本：左右箭头、页码、圆点都能点，不用脚本。
+小红书整条笔记怎么存、要注意什么：[docs/sites.md 的小红书一节](docs/sites.md#把一条笔记存成-html)。
 小红书的评论区存的是页面上已经加载出来的那些；加 `--load-comments`（配 `--attach` / `--browser`）先在页面上
 往下翻、点开楼中楼再存，每步隔 3–5 秒、最多 200 条，弹验证就停（小红书有风控，翻太快账号会被要求扫码验证）。
 
