@@ -394,3 +394,13 @@ test('styled-core.js 不碰 Node：只 import 同目录文件；不给 parseDocu
 		globalThis.Buffer = saved;
 	}
 });
+
+test('图片上的 crossorigin 去掉：转存到没配 CORS 的图床后，带着它浏览器就拒收', async () => {
+	const page = PAGE.replace('</article>', '<p><img src="/img/b.jpg" crossorigin="anonymous"><video src="/v.mp4" crossorigin></video></p></article>');
+	const { html } = await styledHtml(page, 'https://example.com/post/1', {
+		fetchImpl: fakeFetch(),
+		uploadImage: async (bytes, { ext }) => `https://my-bucket.oss-cn-shenzhen.aliyuncs.com/x.${ext}`,
+	});
+	assert.doesNotMatch(html, /crossorigin/i);
+	assert.match(html, /<img src="https:\/\/my-bucket\.oss-cn-shenzhen\.aliyuncs\.com\/x\.jpg">/);
+});

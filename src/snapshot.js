@@ -33,6 +33,7 @@ const SNAP_LAZY_SRCSET = ['data-srcset', 'data-lazy-srcset'];
 // 页面上的地址属性，离开原站要补成绝对地址
 const SNAP_URL_ATTRS = { a: ['href'], img: ['src'], video: ['poster', 'src'], source: ['src'], audio: ['src'] };
 const SNAP_HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+const SNAP_MEDIA_TAGS = new Set(['img', 'video', 'audio', 'source']);
 // 出处那一行能直接塞进去当第一个孩子的容器（ul、table、p 里塞个 div 就坏了）
 const SNAP_FLOW_TAGS = new Set(['DIV', 'ARTICLE', 'MAIN', 'SECTION', 'BODY']);
 // 能执行脚本、嵌别的页面的东西，存下来的页面里都不留
@@ -106,6 +107,10 @@ export function snapSanitize(node, base, { keepForms = false } = {}) {
 			}
 		}
 		const tag = el.nodeName.toLowerCase();
+		// crossorigin 让浏览器按 CORS 去要图：小红书的图都带着它，xhscdn 回 Access-Control-Allow-Origin
+		// 所以原页面没事；可图片转存到自己的 OSS（没配 CORS）后就全裂了。它只对脚本读像素有用，
+		// 存下来的页面不跑脚本，去掉
+		if (SNAP_MEDIA_TAGS.has(tag)) el.removeAttribute('crossorigin');
 		for (const name of SNAP_URL_ATTRS[tag] ?? []) {
 			const value = el.getAttribute(name);
 			if (value) el.setAttribute(name, snapAbsolute(value, base));
