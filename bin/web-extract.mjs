@@ -250,7 +250,7 @@ async function runStyled(input, values, options, { remote, browser }) {
 	const { stats } = result;
 	const notes = [
 		...result.warnings,
-		`HTML ${kb(stats.bytes)}（样式 ${kb(stats.cssBefore)} 裁到 ${kb(stats.cssAfter)}${stats.saved !== undefined ? `，${values['upload-images'] ? '传到图床' : values['embed-images'] ? '塞进' : '存下'} ${stats.saved} 张图` : ''}）`,
+		`HTML ${kb(stats.bytes)}（样式 ${kb(stats.cssBefore)} 裁到 ${kb(stats.cssAfter)}${stats.saved !== undefined ? `，${values['upload-images'] ? '传到图床' : values['embed-images'] ? '塞进' : '存下'} ${stats.saved} 张图` : ''}${stats.fonts ? `，塞进 ${stats.fonts} 个字体` : ''}）`,
 	];
 	return { text: result.html, outFile: values.output, warning: notes.join('\nweb-extract: ') };
 }

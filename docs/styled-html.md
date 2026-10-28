@@ -11,7 +11,7 @@ web-extract parse <url> --attach --html --upload-images -o page.html        # �
 ```
 
 参考的是 [SingleFile](https://github.com/gildas-lormeau/SingleFile)（浏览器扩展，把整页存成一个 HTML），
-学了它控体积的那几招，没学它把图片、字体转成 base64 塞进文件的做法。
+学了它控体积的那几招，没学它把图片、字体都转成 base64 塞进文件的做法（只塞不塞就显示不出来的，见下文）。
 
 ## 两种存法
 
@@ -157,7 +157,14 @@ CSS 里同一张图被几条规则引用（图标 sprite）时只塞一份，放
 一个文件、体积小、长期有效。配置不进仓库，见 [image-host.md](image-host.md)。三种存法只能选一种。
 存图上限：单张 20 MB（塞进 HTML 时 5 MB），最多 1000 张（小红书一条热门笔记几百条评论，每条一个头像）。
 
-字体不存，仍是远程地址：一套字体几 MB，不值。字体跨域要 CORS，原站没开就退回系统字体。
+字体按服务器让不让跨域分两种（不管图片怎么存都这样）：
+
+- 回 `Access-Control-Allow-Origin: *` 的（Google Fonts 这类），留远程地址：存下的页面打开时照样能下载
+- 不回的，存下的页面（本地文件、别的站）用不了，浏览器直接拒收。图标字体一拒，箭头、菜单图标全没了
+  （WakaTime 的 FontAwesome 就是这样）。这类下载下来塞进 CSS，`src` 只留一种格式（woff2 > woff > ttf > otf），
+  单个 2 MB、加起来 10 MB 封顶，超了或者下载不到的留远程地址，stderr 记一条
+
+只看用到的字体：没被留下的规则用到的 `@font-face` 先就删了，不会去下载。
 
 ## 已知边界
 

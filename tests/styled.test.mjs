@@ -50,7 +50,7 @@ x{content:"</style><script>alert(1)</script>"}`,
 	'https://example.com/css/alt.css': '.post{color:green}',
 };
 
-/** 假的 fetch：样式表按表给，图片给几个字节的 jpeg，别的 404。记下要过哪些地址。 */
+/** 假的 fetch：样式表按表给，图片给几个字节的 jpeg，字体允许跨域，别的 404。记下要过哪些地址。 */
 function fakeFetch(log = []) {
 	return async (url, init = {}) => {
 		log.push({ url: String(url), referer: init.headers?.referer });
@@ -58,6 +58,8 @@ function fakeFetch(log = []) {
 		if (css !== undefined) return new Response(css, { headers: { 'content-type': 'text/css' } });
 		if (String(url).endsWith('.jpg')) return new Response(new Uint8Array([0xff, 0xd8, 0xff]), { headers: { 'content-type': 'image/jpeg' } });
 		if (String(url).endsWith('.gif')) return new Response('<html>blocked</html>', { headers: { 'content-type': 'text/html' } });
+		// 字体服务器都允许跨域（像 Google Fonts），存下的页面留远程地址就能用
+		if (String(url).endsWith('.woff2')) return new Response(new Uint8Array([0]), { headers: { 'access-control-allow-origin': '*' } });
 		return new Response('nope', { status: 404 });
 	};
 }
@@ -83,7 +85,7 @@ test('只存正文：正文套回祖先骨架，站点 CSS 照旧命中', async 
 	// @import 展开，url() 按各自样式表的地址补全
 	assert.match(css, /body\.page\{margin:0;background:url\(https:\/\/example\.com\/css\/parts\/bg2\.png\)\}/);
 	assert.match(css, /url\(https:\/\/example\.com\/img\/h\.png\)/);
-	// 字体只留被用到的，地址补全不转 base64
+	// 字体只留被用到的，地址补全；字体服务器允许跨域，不转 base64
 	assert.match(css, /font-family:Brand;src:url\(https:\/\/example\.com\/fonts\/brand\.woff2\)/);
 	assert.doesNotMatch(css, /Nobody/);
 	// 打印样式表、备选样式表不要；一模一样的内联样式表只留一份
@@ -263,8 +265,9 @@ test('--assets：CSS 和行内 style 里的背景图也存到本地，字体不�
 		assert.equal(stats.saved, 2);
 		assert.match(html, /\.logo\{background:url\(files\/[0-9a-f]{16}\.jpg\)\}/);
 		assert.match(html, /style="background-image:url\(files\/[0-9a-f]{16}\.jpg\)"/);
+		// 字体不存进图片目录；字体服务器允许跨域，留远程地址
 		assert.match(html, /url\(https:\/\/example\.com\/f\.woff2\)/);
-		assert.ok(!log.some((e) => e.url.endsWith('.woff2')));
+		assert.ok(readdirSync(join(dir, 'files')).every((name) => name.endsWith('.jpg')));
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -423,4 +426,27 @@ test('embedImages：CSS 里引用不止一次的图只塞一份，放进 :root �
 	assert.match(html, /\.b\{background-image:var\(--web-extract-img-1\)\}/);
 	assert.match(html, /\.c\{background:url\(data:image\/jpeg;base64,\/9j\/\)\}/);
 	assert.match(html, /style="background:var\(--web-extract-img-1\)"/);
+});
+
+test('字体服务器不让跨域用的，字体塞进 CSS（只挑一种格式）；回 Access-Control-Allow-Origin: * 的留远程地址', async () => {
+	const page = `<html><head><style>
+@font-face{font-family:Icons;src:url(/fonts/icons.eot?v=1);src:url(/fonts/icons.eot?#iefix) format("embedded-opentype"),url(/fonts/icons.woff2?v=1) format("woff2"),url(/fonts/icons.woff) format("woff")}
+@font-face{font-family:Open;src:url(https://fonts.example.net/open.woff2) format("woff2")}
+@font-face{font-family:Gone;src:url(/fonts/gone.woff2)}
+.fa{font-family:Icons}body{font-family:Open,Gone}</style></head><body><i class="fa">x</i>正文</body></html>`;
+	const log = [];
+	const fetchImpl = async (url) => {
+		log.push(String(url));
+		if (String(url).includes('icons.woff2')) return new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'font/woff2' } });
+		if (String(url).includes('open.woff2')) return new Response(new Uint8Array([4]), { headers: { 'access-control-allow-origin': '*' } });
+		return new Response('nope', { status: 404 });
+	};
+	const { html, warnings, stats } = await styledHtml(page, 'https://example.com/', { fetchImpl });
+	assert.match(html, /@font-face\{font-family:Icons;src:url\(data:font\/woff2;base64,AQID\) format\("woff2"\)\}/);
+	assert.doesNotMatch(html, /icons\.(eot|woff\b)/);
+	assert.match(html, /url\(https:\/\/fonts\.example\.net\/open\.woff2\)/);
+	assert.match(html, /url\(https:\/\/example\.com\/fonts\/gone\.woff2\)/);
+	assert.ok(warnings.some((w) => w.includes('gone.woff2') && w.includes('HTTP 404')));
+	assert.equal(stats.fonts, 1);
+	assert.ok(!log.some((url) => url.includes('.eot') || url.endsWith('icons.woff')));
 });

@@ -344,6 +344,78 @@ function cssImageUrls(text) {
 	return Array.from(String(text ?? '').matchAll(CSS_URL), (m) => m[2]).filter((url) => !FONT_EXT.test(url));
 }
 
+// 跨域字体要 CORS：存下来的页面是本地文件，字体服务器不回 Access-Control-Allow-Origin: * 的话
+// 浏览器拒收。图标字体（WakaTime 的 FontAwesome）一拒，箭头、菜单图标全没了。
+// 这类字体下载下来塞进 CSS（只挑一种格式）；回 * 的（Google Fonts）留远程地址。
+const MAX_FONT_BYTES = 2 * 1024 * 1024;
+const MAX_FONT_TOTAL = 10 * 1024 * 1024;
+const FONT_FACE = /@font-face\s*\{[^}]*\}/gi;
+const FONT_SRC = /url\(\s*(['"]?)(https?:\/\/[^'")\s]+)\1\s*\)(?:\s*format\(\s*['"]?([\w-]+)['"]?\s*\))?/gi;
+const FONT_TYPES = [
+	['woff2', 'font/woff2'],
+	['woff', 'font/woff'],
+	['ttf', 'font/ttf'],
+	['otf', 'font/otf'],
+];
+const FONT_FORMAT_EXT = { woff2: 'woff2', woff: 'woff', truetype: 'ttf', opentype: 'otf' };
+
+/** @font-face 里挑一个要下载的地址：woff2 > woff > ttf > otf，eot、svg 不要。 */
+function pickFontSrc(block) {
+	const found = Array.from(block.matchAll(FONT_SRC), (m) => {
+		const ext = FONT_FORMAT_EXT[(m[3] ?? '').toLowerCase()]
+			?? /\.(woff2?|ttf|otf)(?:[?#]|$)/i.exec(m[2])?.[1]?.toLowerCase();
+		return { url: m[2], ext };
+	});
+	for (const [ext, mime] of FONT_TYPES) {
+		const hit = found.find((f) => f.ext === ext);
+		if (hit) return { ...hit, mime, format: ext === 'ttf' ? 'truetype' : ext === 'otf' ? 'opentype' : ext };
+	}
+	return null;
+}
+
+/** 不让跨域用的字体塞进 CSS：src 换成一个 data: URI。返回新的 CSS 和塞了几个。 */
+async function inlineBlockedFonts(css, { fetchImpl, userAgent, referer, timeoutMs }) {
+	const warnings = [];
+	const blocks = Array.from(new Set(css.match(FONT_FACE) ?? []));
+	const fetched = new Map();
+	let total = 0;
+	const load = async ({ url, mime }) => {
+		const res = await fetchImpl(url, {
+			redirect: 'follow',
+			signal: AbortSignal.timeout(timeoutMs ?? 30_000),
+			headers: { ...(userAgent ? { 'user-agent': userAgent } : {}), ...(referer ? { referer } : {}), accept: '*/*' },
+		});
+		if (!res.ok) {
+			await res.body?.cancel();
+			throw new Error(`HTTP ${res.status}`);
+		}
+		if ((res.headers.get('access-control-allow-origin') ?? '').trim() === '*') {
+			await res.body?.cancel();
+			return null;
+		}
+		const bytes = await readLimited(res, MAX_FONT_BYTES);
+		if (total + bytes.byteLength > MAX_FONT_TOTAL) throw new Error('塞进来的字体总量超过上限');
+		total += bytes.byteLength;
+		return `data:${mime};base64,${toBase64(bytes)}`;
+	};
+	const replaced = new Map();
+	await Promise.all(blocks.map(async (block) => {
+		const src = pickFontSrc(block);
+		if (!src) return;
+		if (!fetched.has(src.url)) fetched.set(src.url, load(src));
+		try {
+			const data = await fetched.get(src.url);
+			if (!data) return;
+			const rest = block.replace(/\bsrc\s*:[^;}]*;?/gi, '').replace(/;?\s*\}$/, '');
+			replaced.set(block, `${rest};src:url(${data}) format("${src.format}")}`);
+		} catch (err) {
+			warnings.push(`字体 ${src.url} 没塞进来（${err.message}），存下的页面上可能显示不出来`);
+		}
+	}));
+	const out = replaced.size ? css.replace(FONT_FACE, (block) => replaced.get(block) ?? block) : css;
+	return { css: out, warnings: Array.from(new Set(warnings)), fonts: replaced.size };
+}
+
 /** CSS 里存下来的那些地址换成新地址（相对路径、图床地址、data: URI）。shared 里有的换成 var()。 */
 function replaceCssUrls(text, map, shared = new Map()) {
 	return String(text ?? '').replace(CSS_URL, (whole, quote, url) => {
@@ -419,6 +491,9 @@ export async function buildStyledHtml(snap, options = {}) {
 		.map((el) => el.getAttribute('style'))
 		.join('\n');
 	let css = shrinkCss(rawCss, selectorMatcher(doc), inlineStyles);
+	const fontResult = await inlineBlockedFonts(css, { fetchImpl, userAgent: options.userAgent, referer: snap.url, timeoutMs: options.timeoutMs });
+	css = fontResult.css;
+	warnings.push(...fontResult.warnings);
 
 	let assetStats = null;
 	let sharedCss = '';
@@ -500,6 +575,7 @@ export async function buildStyledHtml(snap, options = {}) {
 			cssBefore: rawCss.length,
 			cssAfter: css.length,
 			bytes: new TextEncoder().encode(html).byteLength,
+			...(fontResult.fonts ? { fonts: fontResult.fonts } : {}),
 			...(assetStats ?? {}),
 		},
 	};
