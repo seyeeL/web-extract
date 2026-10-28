@@ -545,7 +545,7 @@ export function absolutizeUrls(clone, base) {
 }
 
 /** 相对地址按什么补：页面有 <base href> 就按它（它自己也可能是相对的），否则按页面地址。 */
-function baseUrlFor(doc, href) {
+export function baseUrlFor(doc, href) {
 	const declared = doc?.querySelector?.('base[href]')?.getAttribute('href') ?? '';
 	if (declared) {
 		try {

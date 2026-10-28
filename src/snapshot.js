@@ -14,7 +14,7 @@
 // 浏览器模式会把这个文件和 extract.js 等拼成一段脚本注进页面，import 只能写单行，
 // 顶层名字不能和那几个文件撞。
 
-import { extractArticle } from './extract.js';
+import { baseUrlFor, extractArticle } from './extract.js';
 import { adSelectorsFor, ruleFor } from './site-rules.js';
 
 // 骨架上每一层祖先都挂这个属性：Node 那边按它压掉固定高度、overflow:hidden，
@@ -559,7 +559,8 @@ export async function snapExpand(doc, url = '', options = {}) {
  */
 export function snapshotDocument(doc, url = '', options = {}) {
 	const article = extractArticle(doc, url, { withReplies: options.withReplies === true, styled: true });
-	const base = article.url || url;
+	// 相对地址按 <base href> 补（知识星球是 <base href="/">，样式表写成 styles-xxx.css）
+	const base = baseUrlFor(doc, url || article.url);
 	const articleOnly = options.articleOnly === true;
 	const rule = ruleFor(article.url);
 	const body = articleOnly ? snapSkeleton(doc, article) : snapFullBody(doc, rule, article.url);

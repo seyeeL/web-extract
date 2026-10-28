@@ -404,3 +404,23 @@ test('图片上的 crossorigin 去掉：转存到没配 CORS 的图床后，带�
 	assert.doesNotMatch(html, /crossorigin/i);
 	assert.match(html, /<img src="https:\/\/my-bucket\.oss-cn-shenzhen\.aliyuncs\.com\/x\.jpg">/);
 });
+
+test('页面有 <base href> 时样式表、图片的相对地址按它补（知识星球是 <base href="/">）', () => {
+	const page = `<!doctype html><html><head><base href="/"><link rel="stylesheet" href="styles-ABC.css"></head>
+<body><article><h1>标题</h1><p>正文正文正文正文正文正文正文正文正文正文正文正文。</p><img src="assets/a.png"></article></body></html>`;
+	const snap = snapshotDocument(parseHTML(page).document, 'https://wx.zsxq.com/group/1/topic/2');
+	assert.equal(snap.sheets[0].href, 'https://wx.zsxq.com/styles-ABC.css');
+	assert.match(snap.body, /src="https:\/\/wx\.zsxq\.com\/assets\/a\.png"/);
+});
+
+test('embedImages：CSS 里引用不止一次的图只塞一份，放进 :root 变量，各处用 var()', async () => {
+	const page = '<html><head><style>.a{background:url(/img/sprite.jpg) 0 0}.b{background-image:url(/img/sprite.jpg)}.c{background:url(/img/one.jpg)}</style></head>'
+		+ '<body><div class="a"></div><div class="b"></div><div class="c" style="background:url(/img/sprite.jpg)"></div></body></html>';
+	const { html } = await styledHtml(page, 'https://example.com/', { fetchImpl: fakeFetch(), embedImages: true });
+	assert.equal(html.match(/data:image\/jpeg;base64,\/9j\//g).length, 2);
+	assert.match(html, /<style>:root\{--web-extract-img-1:url\("data:image\/jpeg;base64,\/9j\/"\)\}<\/style>\n<style>\.a\{/);
+	assert.match(html, /\.a\{background:var\(--web-extract-img-1\) 0 0\}/);
+	assert.match(html, /\.b\{background-image:var\(--web-extract-img-1\)\}/);
+	assert.match(html, /\.c\{background:url\(data:image\/jpeg;base64,\/9j\/\)\}/);
+	assert.match(html, /style="background:var\(--web-extract-img-1\)"/);
+});

@@ -428,6 +428,7 @@ UTC 07:19 加八小时正好）。老版页面有 `<time datetime>` 就直接用
 | 点赞头像和评论 | 默认规则会把「觉得很赞」那排头像当配图收进来 | 配图只认 `app-talk-content` 里面的，评论区的图不在里面 |
 | #话题 / @某人 | 指向站内标签页、足迹页，笔记里点不开 | `unwrap: a.hashtag, a.noLinkIcon`，正文外链（`a.link-of-topic`）留着 |
 | 表情 | `img.emoji_local`，相对地址 `assets_dweb/images/emoji/得意.png` | `drop` |
+| `<base href="/">` | 样式表写成 `styles-xxx.css`、表情写成 `assets_dweb/…`，按页面地址补成 `/group/<id>/topic/styles-xxx.css` 就抓不到，`--html` 存出来没样式 | 相对地址按 `<base href>` 补（所有站点通用，不在规则里） |
 
 **配图地址带签名。** `images.zsxq.com/<key>?imageMogr2/.../thumbnail/380x/...&e=<过期时间戳>&token=…`，
 页面上给的是 380 宽缩略图，`e` 是过期时间。尺寸参数在签名范围里，改了会失效，所以不像微博那样换原图；

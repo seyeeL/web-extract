@@ -344,12 +344,33 @@ function cssImageUrls(text) {
 	return Array.from(String(text ?? '').matchAll(CSS_URL), (m) => m[2]).filter((url) => !FONT_EXT.test(url));
 }
 
-/** CSS 里存到本地的那些地址换成相对路径。 */
-function replaceCssUrls(text, map) {
+/** CSS 里存下来的那些地址换成新地址（相对路径、图床地址、data: URI）。shared 里有的换成 var()。 */
+function replaceCssUrls(text, map, shared = new Map()) {
 	return String(text ?? '').replace(CSS_URL, (whole, quote, url) => {
+		if (shared.has(url)) return `var(${shared.get(url)})`;
 		const local = map.get(url);
 		return local ? `url(${quote}${local}${quote})` : whole;
 	});
+}
+
+/**
+ * 塞进 HTML 的图在 CSS 里被引用了不止一次的，放进 :root 的变量，各处写 var()。
+ * 知识星球的图标 sprite 被七八条规则引用，每处都塞一份 base64，CSS 从 22 KB 涨到 4.8 MB。
+ * 返回 原地址 → 变量名，和定义这些变量的那条规则。
+ */
+function shareDataUrls(texts, map) {
+	const counts = new Map();
+	for (const url of texts.flatMap(cssImageUrls)) counts.set(url, (counts.get(url) ?? 0) + 1);
+	const shared = new Map();
+	const decls = [];
+	for (const [url, count] of counts) {
+		const local = map.get(url);
+		if (count < 2 || !local?.startsWith('data:')) continue;
+		const name = `--web-extract-img-${shared.size + 1}`;
+		shared.set(url, name);
+		decls.push(`${name}:url("${local}")`);
+	}
+	return { shared, rule: decls.length ? `:root{${decls.join(';')}}` : '' };
 }
 
 /** 正文里引用到的图片地址：<img src / srcset>、<source srcset>、<video poster>。 */
@@ -400,6 +421,7 @@ export async function buildStyledHtml(snap, options = {}) {
 	let css = shrinkCss(rawCss, selectorMatcher(doc), inlineStyles);
 
 	let assetStats = null;
+	let sharedCss = '';
 	const store = options.storeImage
 		?? (typeof options.uploadImage === 'function' ? uploadStore(options.uploadImage) : null)
 		?? (options.embedImages === true ? embedStore() : null);
@@ -428,8 +450,11 @@ export async function buildStyledHtml(snap, options = {}) {
 			if (local) el.setAttribute('poster', local);
 		}
 		// CSS 里的背景图、图标 sprite（豆瓣首页的 logo、导航都是背景图）
-		css = replaceCssUrls(css, map);
-		for (const el of styled) el.setAttribute('style', replaceCssUrls(el.getAttribute('style'), map));
+		const shared = shareDataUrls([css, ...styled.map((el) => el.getAttribute('style'))], map);
+		// 单独一个 <style>：拼在 CSS 最前面的话，没展开的 @import 就不在开头了，会失效
+		sharedCss = shared.rule;
+		css = replaceCssUrls(css, map, shared.shared);
+		for (const el of styled) el.setAttribute('style', replaceCssUrls(el.getAttribute('style'), map, shared.shared));
 		assetStats = { saved: map.size };
 	}
 
@@ -451,6 +476,7 @@ export async function buildStyledHtml(snap, options = {}) {
 		snap.publishedAt ? `<meta property="article:published_time" content="${escapeHtml(snap.publishedAt)}">` : '',
 		'<meta name="generator" content="web-extract">',
 		// </style 出现在 CSS 里会提前把 <style> 关掉，后面的东西就成了 HTML
+		sharedCss ? `<style>${sharedCss}</style>` : '',
 		css ? `<style>${css.replace(/<\/style/gi, '<\\/style')}</style>` : '',
 		snap.mode === 'article' ? `<style>${FIX_CSS}</style>` : '',
 		maxSlides ? `<style>${carouselCss(maxSlides)}</style>` : '',
