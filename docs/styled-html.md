@@ -29,6 +29,10 @@ web-extract parse <url> --attach --html --upload-images -o page.html        # �
 站点规则的 `prepare` 也跑（豆瓣广播的配图在静态 HTML 里只是脚本里的 JSON），别的规则（删头像、重排引用段）
 不跑：整页存就是要原样。
 
+标题（存下的 `<title>`，扩展拿它起文件名）也照原样：用原页面的 `<title>`，和标签页上看到的一样。不用 `og:title`，
+有的站整站都填同一句（WakaTime 每页都是「WakaTime - Dashboards for developers」）。站点规则点名了标题取法的
+（小红书、微博、X、豆瓣广播、知识星球）还用规则的；`<title>` 是空的也退回提取出来的标题。
+
 想和原站排得不一样（个人偏好，不是修 bug），调用 `buildStyledHtml` 时传 `siteStyles`，按域名给一段 CSS，
 排在站点样式后面。web-extract 自己不带任何一条，由用它的地方（比如浏览器扩展）自己配：
 

@@ -569,10 +569,15 @@ export function snapshotDocument(doc, url = '', options = {}) {
 	snapSvgSprites(doc, body);
 	snapSanitize(body, base, { keepForms: !articleOnly });
 	const viewport = doc.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? '';
+	// 整页存的标题用原页面的 <title>，和标签页上看到的一样：og:title 有的站整站都填同一句
+	// （WakaTime 每页都是「WakaTime - Dashboards for developers」，标签页是「2026-10-27 - WakaTime」）。
+	// 规则点名了标题怎么取的（小红书、微博、X……）还用规则的，那些站的 <title> 不如它
+	const ruleTitle = Boolean(rule?.title || rule?.titleFromBody);
+	const pageTitle = String(doc.title ?? '').replace(/\s+/g, ' ').trim();
 	return {
 		mode: articleOnly ? 'article' : 'full',
 		url: article.url,
-		title: article.title,
+		title: !articleOnly && !ruleTitle && pageTitle ? pageTitle : article.title,
 		author: article.author,
 		publishedAt: article.publishedAt,
 		siteName: article.siteName,

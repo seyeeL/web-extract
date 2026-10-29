@@ -465,3 +465,16 @@ test('字体服务器不让跨域用的，字体塞进 CSS（只挑一种格式�
 	assert.equal(stats.fonts, 1);
 	assert.ok(!log.some((url) => url.includes('.eot') || url.endsWith('icons.woff')));
 });
+
+test('整页存的标题用原页面的 <title>（og:title 整站一句的也不受影响）；只存正文、规则点名了标题的照旧', () => {
+	const page = `<!DOCTYPE html><html><head><title>2026-10-27 - WakaTime</title>
+<meta property="og:title" content="WakaTime - Dashboards for developers"><meta property="og:site_name" content="WakaTime"></head>
+<body><div id="total-logged-time">2 hrs 15 mins on Tue Oct 27th 2026</div><article><p>${'正文'.repeat(80)}</p></article></body></html>`;
+	const url = 'https://wakatime.com/dashboard/day?date=2026-10-27';
+	assert.equal(snapshotDocument(parseHTML(page).document, url).title, '2026-10-27 - WakaTime');
+	assert.equal(snapshotDocument(parseHTML(page).document, url, { articleOnly: true }).title, 'WakaTime - Dashboards for developers');
+	// <title> 空的退回提取出来的标题
+	assert.equal(snapshotDocument(parseHTML(page.replace('2026-10-27 - WakaTime', ' ')).document, url).title, 'WakaTime - Dashboards for developers');
+	// 小红书规则点名了 #detail-title，不用带「 - 小红书」的 <title>
+	assert.equal(snapshotDocument(parseHTML(XHS_PAGE).document, 'https://www.xiaohongshu.com/explore/69b8dd39000000001e00dde9').title, '女生多练支撑类动作');
+});
