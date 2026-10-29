@@ -344,6 +344,39 @@ test('回归：X 长文章不能只剪到封面，正文、标题和段落都要
 	assert.equal(document.body.innerHTML, before, '只清洗克隆体，不能改页面');
 });
 
+test('X 长文章（登录后的老版页面）：阅读视图是嵌着的 article，不当引用推；小标题不被当页头删', () => {
+	// 照 2026-10-29 登录后剪的一篇长文章的结构裁的，文字是编的：主推里没有 tweetText，
+	// 标题、封面、Draft.js 正文都在嵌着的 article[data-testid="twitterArticleReadView"] 里
+	const { document } = parseHTML(`<html><body><article data-testid="tweet">
+		<div data-testid="User-Name"><a role="link" href="/someone"><span>某作者</span></a>
+			<div dir="auto">点击 关注 someone</div><button data-testid="1-follow">关注</button></div>
+		<article data-testid="twitterArticleReadView">
+			<div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/cover?format=jpg&amp;name=small" alt="图像"></div>
+			<div data-testid="twitter-article-title"><span>一天里改掉一个习惯</span></div>
+			<div><button data-testid="reply">12</button><button data-testid="like">3.4万</button></div>
+			<div data-testid="twitterArticleRichTextView"><div class="DraftEditor-root"><div data-testid="longformRichTextComponent">
+				<div class="longform-unstyled"><div><span><span data-text="true">第一段，开门见山。</span></span></div></div>
+				<h2 class="longform-header-two"><div><span><span data-text="true">一、先看清现在</span></span></div></h2>
+				<ol><li class="longform-ordered-list-item"><div><span data-text="true">写下来</span></div></li>
+					<li class="longform-ordered-list-item"><div><span data-text="true">再看一遍</span></div></li></ol>
+				<blockquote class="longform-blockquote"><div><span data-text="true">别人说过的一句话。</span></div></blockquote>
+				<section><div data-testid="tweetPhoto"><img src="https://pbs.twimg.com/media/inside?format=jpg&amp;name=small" alt="图像"></div></section>
+				<div class="longform-unstyled"><div><span><span data-text="true">最后一段。</span></span></div></div>
+			</div></div></div>
+		</article>
+		<a href="/someone/status/2099736121781764594/analytics"><time datetime="2026-09-15T05:44:37.000Z">9月15日</time></a>
+	</article></body></html>`);
+	const article = extractArticle(document, 'https://x.com/someone/status/2099736121781764594');
+	assert.equal(article.title, '某作者 on X: 一天里改掉一个习惯');
+	assert.equal(article.author, '某作者');
+	assert.equal(
+		htmlToMarkdown(article.root),
+		'![图像](https://pbs.twimg.com/media/cover?format=jpg&name=large)\n\n' +
+			'第一段，开门见山。\n\n## 一、先看清现在\n\n1. 写下来\n2. 再看一遍\n\n> 别人说过的一句话。\n\n' +
+			'![图像](https://pbs.twimg.com/media/inside?format=jpg&name=large)\n\n最后一段。',
+	);
+});
+
 test('X 长文章没有 h1 时仍用正文开头和作者包装标题', () => {
 	const { document } = parseHTML(`<html><body><article>
 		<a href="https://x.com/KinGao476942">Kin</a>

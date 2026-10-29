@@ -196,8 +196,13 @@ const SNOWFLAKE_EPOCH = 1288834974657;
 /** 主推那一块里用：排除引用推文（嵌在主推里的另一个 article）里的同名元素。 */
 const inFocal = (selector) => `${selector}:not(article article *)`;
 // 老版页面上 dir="auto" 满天飞（昵称、卡片标题都是），有 tweetText 就说明是老版，
-// 新版那条正文选择器挂上这个就不生效，两条路互斥
-const MODERN_ONLY = ':not(article:has([data-testid="tweetText"]) *)';
+// 新版那条正文选择器挂上这个就不生效，两条路互斥。老版的长文章没有 tweetText，
+// 认它自己的阅读视图（不然「点击 关注 @某人」这种悬浮卡片文字会被当成正文）
+const MODERN_ONLY = ':not(article:has([data-testid="tweetText"], [data-testid="twitterArticleReadView"]) *)';
+// 老版（登录后）长文章：主推里嵌着一个 article 当阅读视图，标题、封面、正文都在里面。
+// 它不是引用推文，下面几处要把它从「article article」里摘出来
+const ARTICLE_VIEW = '[data-testid="twitterArticleReadView"]';
+const ARTICLE_BODY = `${ARTICLE_VIEW} [data-testid="twitterArticleRichTextView"]`;
 
 /** 这条推自己身上的元素，不含它引用的那条推里的。 */
 function ownParts(article, selector) {
@@ -895,7 +900,10 @@ export const SITE_RULES = [
 			// 长文章的普通 tweetText / dir="auto" 可能为空，正文在独立的富文本容器里。
 			inFocal('.x-article-body'),
 			...TWEET_MEDIA.map(inFocal),
-			'article article',
+			// 老版长文章：封面（正文外面那张）在前，正文在后；正文里的配图跟着正文走
+			`${ARTICLE_VIEW} [data-testid="tweetPhoto"] img:not(${ARTICLE_BODY} *)`,
+			ARTICLE_BODY,
+			`article article:not(${ARTICLE_VIEW})`,
 		],
 		// 昵称和回复抬头走同一个取法（nameLinks）：新版的昵称链接是相对的 /yyyole，
 		// 和没有文字的头像链接长得一样，选择器分不出来，只能在函数里筛
@@ -913,8 +921,9 @@ export const SITE_RULES = [
 		// 取不到 id 才用页面绝对时间。普通 status 链接也可能是 Reply / Views，
 		// 文本只是「17」这样的互动数，不能再当发布时间。
 		published: inFocal(TWEET_TIME[0]),
-		// 长文章有独立标题；普通推文没有 h1，仍退回正文开头。
-		title: inFocal('h1'),
+		// 长文章有独立标题（新版是 h1，老版是阅读视图里的 twitter-article-title）；
+		// 普通推文都没有，仍退回正文开头。
+		title: `${ARTICLE_VIEW} [data-testid="twitter-article-title"], ${inFocal('h1')}`,
 		// 推文没有标题，取正文开头，再包成 X 自己那套页面标题的格式
 		// （「沐阳 on X: 发现一个很酷的动效库…」）：笔记列表里一眼看出这是谁的哪条推。
 		// 取不到作者名就只留正文，不留「 on X: 」这种半截前缀
@@ -922,6 +931,9 @@ export const SITE_RULES = [
 		titleFormat: ({ body, author }) => (author ? `${author} on X: ${body}` : body),
 		// 视频存不进笔记，留封面图
 		videoPoster: true,
+		// 老版长文章的小标题是 <h2 class="longform-header-two">，类名里的 header 会被当成页头删掉。
+		// 这里是在克隆出来的正文上判断，外面那层阅读视图已经不在了，只能按正文容器自己认
+		keep: ['[data-testid="twitterArticleRichTextView"]'],
 		// 页面上给的是 small / medium 缩略图
 		rewriteImageSrc: upgradeTwimgImage,
 		// 视频封面在页面上有两份：底下垫着的占位 <img> 和 hydrate 之后 <video> 的 poster。

@@ -226,13 +226,13 @@ https://sns-webpic-qc.xhscdn.com/<时间戳>/<hash>/notes_pre_post/<id>!nd_dft_w
 | 项 | 取法 |
 |----|------|
 | 主推 | 按 URL 里的推文 id 框出那一个 `<article>`（`scope`），后面所有选择器都只在这块里找 |
-| 正文 | 普通推文：新版 `div[dir="auto"]`，老版 `[data-testid="tweetText"]`，两条互斥；长文章另取 `.x-article-body` |
+| 正文 | 普通推文：新版 `div[dir="auto"]`，老版 `[data-testid="tweetText"]`，两条互斥；长文章另取：未登录是 `.x-article-body`，登录后是阅读视图里的 `[data-testid="twitterArticleRichTextView"]`（前面先收正文外的封面图） |
 | 配图 | `img[src*="twimg.com/media/"]`，尺寸档换成 `large` |
 | 视频 | 存不进 Markdown，留 `<video>` 的封面图（`videoPoster`） |
 | 引用推文 | 嵌在主推里的另一个 `<article>`，重排成「抬头 + 正文 + 配图」再套成引用段（`blockquote` + `formatQuote`） |
 | 作者 | 主推里指向个人页、有文字、不以 @ 开头的那个链接（`authorFrom`）；框不出主推时退到选择器，老版是 `[data-testid="User-Name"]` |
 | 时间 | 主推优先从当前 URL 的 status id（snowflake）换算本地日期 `YYYY-MM-DD`；取不到时退到 `<time datetime>` 等页面绝对时间，不读普通 status 链接上的 Reply / Views 数字 |
-| 标题 | 普通推文：`作者 on X: 正文开头 40 字`；长文章优先取主推内的 `h1`，同样经 `titleFormat` 包装为 `作者 on X: 文章标题`，无 `h1` 时退回正文开头 |
+| 标题 | 普通推文：`作者 on X: 正文开头 40 字`；长文章优先取主推内的 `h1`（登录后是阅读视图里的 `[data-testid="twitter-article-title"]`），同样经 `titleFormat` 包装为 `作者 on X: 文章标题`，无 `h1` 时退回正文开头 |
 | 回复 | 主推底下的串和评论，一条一段引用（`**昵称 @handle** · [日期](链接)` + 正文），CLI 默认收，`--no-replies` 关掉（`replies`） |
 | 来源链接 | `/status/…` 自动去掉 query 参数，保留路径和锚点；回复、引用推文的日期链接同样清理 |
 
@@ -254,6 +254,13 @@ https://sns-webpic-qc.xhscdn.com/<时间戳>/<hash>/notes_pre_post/<id>!nd_dft_w
 补上规则后 111 个正文段落全部保留，独立标题正确；开启、关闭评论均通过，来源链接不带分享参数。
 主推发布时间也已补验：文章顶部的 Reply 链接文字是 `17`，排在真正的日期链接前面，旧选择器会误取。
 现在从 status id 换算，输出 `2026-09-15`；与回复共用 snowflake 换算和本地时区。
+
+2026-10-29 补验登录后的长文章（扩展里剪的，老版 React 页面）：标题、封面、正文都在主推里嵌着的
+`article[data-testid="twitterArticleReadView"]` 里。修之前三处出错：这个 article 被当成引用推文重排，
+只剩日期、标题和几张图，正文一段没有；主推没有 `tweetText`，新版那条 `div[dir="auto"]` 生效，
+关注悬浮卡片上的「点击 关注 @某人」进了正文和标题；正文的小标题是 `<h2 class="longform-header-two">`，
+类名里的 header 让它被当成页头删掉。现在阅读视图从 `article article` 里摘出来、`MODERN_ONLY` 也认它，
+正文容器挂在 `keep` 上。验的那篇 130 多段、7 个小标题、6 段引用、3 张图全部保留。
 
 **昵称链接改成了相对地址（2026-10-09）。** 新版页面的昵称、@handle、头像三个链接原来是
 `https://x.com/yyyole`，改版后都是 `/yyyole`。旧选择器只认绝对地址，一个都命中不了，于是作者
