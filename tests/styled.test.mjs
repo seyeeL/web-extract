@@ -138,6 +138,31 @@ test('带样式 HTML：样式表抓不到记 warning，不拖垮整次；页面�
 	assert.match(html, /line-height:1\.8/, '内联样式表不用抓');
 });
 
+test('带样式 HTML：<style> 文字后面又被 insertRule 塞了规则（X 的 react-native-web），塞的那些也收', () => {
+	const { document } = parseHTML(`<html><head>
+<style id="react-native-stylesheet">.r-shell{display:flex}</style>
+<style>.plain{color:red}</style>
+</head><body><div class="r-shell r-late">正文</div></body></html>`);
+	const [grown, plain] = document.querySelectorAll('style');
+	// linkedom 不跑 insertRule：直接把「页面上读到的 cssRules」换成比文字多两条的样子
+	Object.defineProperty(grown, 'sheet', {
+		value: { cssRules: [{ cssText: '.r-shell { display: flex; }' }, { cssText: '.r-late { margin-top: 28px; }' }] },
+	});
+	Object.defineProperty(plain, 'sheet', { value: { cssRules: [{ cssText: '.plain { color: red; }' }] } });
+	// 浏览器里拿文字另建一张样式表数规则；这里按右花括号数
+	document.defaultView.CSSStyleSheet = class {
+		replaceSync(text) {
+			this.cssRules = text.match(/\}/g) ?? [];
+		}
+	};
+	const snap = snapshotDocument(document, 'https://example.com/post/1');
+	assert.deepEqual(snap.sheets.map((s) => s.text), [
+		'.r-shell{display:flex}',
+		'.r-shell { display: flex; }\n.r-late { margin-top: 28px; }',
+		'.plain{color:red}',
+	], '文字照收，紧跟着补一份 cssRules；没多出规则的不重复收');
+});
+
 test('带样式 HTML：--assets 把图片存到本地、用相对路径引用；不是图片的不存', async () => {
 	const dir = mkdtempSync(join(tmpdir(), 'web-extract-assets-'));
 	try {

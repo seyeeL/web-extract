@@ -152,10 +152,36 @@ function snapSheetRules(sheet) {
 }
 
 /**
+ * `<style>` 里的规则比它的文字多：CSS-in-JS 接着已有的 `<style>` 往里 insertRule。
+ * X 的 react-native-web 就是这样——页面自带一段 `#react-native-stylesheet`，之后渲染出来的
+ * 类名全是运行时塞进去的，只收文字的话侧栏、搜索框、正文的间距都没有样式。
+ * 拿文字另建一张样式表数一下规则；数不了（老浏览器、Node 里的假 DOM）就当没多。
+ */
+function snapSheetGrew(el, text) {
+	let live = 0;
+	try {
+		live = el.sheet?.cssRules?.length ?? 0;
+	} catch {
+		return false;
+	}
+	const Sheet = el.ownerDocument?.defaultView?.CSSStyleSheet;
+	if (!live || typeof Sheet !== 'function') return false;
+	try {
+		const probe = new Sheet();
+		probe.replaceSync(text);
+		return probe.cssRules.length < live;
+	} catch {
+		return false;
+	}
+}
+
+/**
  * 页面上的样式表，按文档顺序：
  * - `<link rel=stylesheet>` 给地址，Node 那边去抓原文（读 cssRules 再拼回去会丢掉浏览器
  *   不认识的写法，比如别的浏览器的私有前缀）；页面里读得到 cssRules 的顺手带上，抓不到时兜底
- * - `<style>` 给文字；文字是空的但 cssRules 有东西，就是 CSS-in-JS 用 insertRule 塞的，读 cssRules
+ * - `<style>` 给文字；文字是空的但 cssRules 有东西，就是 CSS-in-JS 用 insertRule 塞的，读 cssRules。
+ *   文字不空、cssRules 却更多（接着往里塞的），文字后面紧跟着再给一份 cssRules：文字里的私有前缀留着，
+ *   位置不变，前后别的样式表的覆盖顺序也不变；重复的规则 Node 那边去重
  * - adoptedStyleSheets 只能读 cssRules
  */
 export function snapStylesheets(doc, base) {
@@ -172,8 +198,14 @@ export function snapStylesheets(doc, base) {
 			sheets.push({ href, media, fallback: snapSheetRules(el.sheet) });
 		} else {
 			const text = el.textContent ?? '';
-			const rules = text.trim() ? null : snapSheetRules(el.sheet);
-			if (text.trim() || rules) sheets.push({ text: text.trim() ? text : rules, base, media });
+			if (!text.trim()) {
+				const rules = snapSheetRules(el.sheet);
+				if (rules) sheets.push({ text: rules, base, media });
+				continue;
+			}
+			sheets.push({ text, base, media });
+			const grown = snapSheetGrew(el, text) ? snapSheetRules(el.sheet) : null;
+			if (grown) sheets.push({ text: grown, base, media });
 		}
 	}
 	for (const sheet of Array.from(doc.adoptedStyleSheets ?? [])) {

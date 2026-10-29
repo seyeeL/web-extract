@@ -130,8 +130,11 @@ CSS 变量。去重和删变量之前裁完还有 222 KB。
 
 - `<link rel=stylesheet>` 在 Node 里抓原文（带 UA 和原页面 Referer），`@import` 递归展开，
   `url()` 按各自样式表的地址补全。页面里读得到 `cssRules` 的顺手带一份，抓不到时兜底
-- `<style>` 用文字；文字是空的但 `cssRules` 有东西，就是 CSS-in-JS 用 `insertRule` 塞的（X 就是），
-  读 `cssRules`
+- `<style>` 用文字；文字是空的但 `cssRules` 有东西，就是 CSS-in-JS 用 `insertRule` 塞的，
+  读 `cssRules`。文字不空、`cssRules` 却更多的，是接着已有的 `<style>` 往里塞（X 的 react-native-web：
+  页面自带一段 `#react-native-stylesheet`，之后渲染的类名全在运行时塞），文字后面紧跟着再收一份 `cssRules`。
+  2026-10-29 之前只收文字，X 的长文章存下来正文和标题之间没了间距、右上角搜索框是个方角框还顶出屏幕，
+  缺的 121 个类名全是运行时塞的
 - `adoptedStyleSheets` 读 `cssRules`
 
 为什么不全在页面里读 `cssRules`：跨域的样式表读不到；读到的也是浏览器解析过的版本，别的浏览器
