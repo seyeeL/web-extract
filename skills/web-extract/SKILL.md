@@ -40,7 +40,7 @@ web-extract parse <url> -p domain
 
 | 站点 | 参数 |
 |------|------|
-| 普通博客、新闻、文档站、GitHub Gist、豆瓣广播 | 不用加（豆瓣要回应时加 `--browser`） |
+| 普通博客、新闻、文档站、GitHub Gist、豆瓣广播 / 话题 | 不用加（豆瓣要回应时加 `--browser`） |
 | X / Twitter、微博 | `--browser` |
 | 微信公众号 | `--wx --browser` |
 | 小红书、知识星球 | 要登录态：`--attach`（见下） |

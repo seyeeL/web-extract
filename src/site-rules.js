@@ -706,7 +706,12 @@ function formatDoubanReshared(doc, el) {
  */
 function doubanComments(doc) {
 	const blocks = [];
+	// 话题页的「最赞回复」和「全部回复」是两份列表，热门的那几条两边都有，按 data-cid 只收一次
+	const seen = new Set();
 	for (const item of Array.from(doc.querySelectorAll('#comments .comment-item'))) {
+		const cid = item.getAttribute('data-cid');
+		if (cid && seen.has(cid)) continue;
+		if (cid) seen.add(cid);
 		const content = item.querySelector('.comment-content');
 		if (!content || !(content.textContent ?? '').trim()) continue;
 		const quote = doc.createElement('blockquote');
@@ -1037,6 +1042,23 @@ export const SITE_RULES = [
 		// 外面几层元素之间的换行只是排版空白，换成 <br> 会多出一串空行
 		keepLineBreaks: ['.status-saying p', `.${DOUBAN_TEXT_CLASS}`],
 		rewriteImageSrc: upgradeDoubanImage,
+	},
+	{
+		name: '豆瓣话题',
+		hosts: ['douban.com'],
+		// 「我的话题」那种长文：/topic/<id>/。小组帖子在 /group/topic/ 下，是另一套页面
+		paths: [/^\/topic\/\d+/],
+		// 和广播一样，分享链接带 ?_spm_id=…&_dtcc=1&_i=…
+		normalizeUrl: doubanStatusUrl,
+		replies: doubanComments,
+		// 只收正文那块：头像、「某某 说：」、话题标签、投诉 / 赞 / 转发那排、侧栏的赞和转发名单都在外面
+		root: '.topic-content .topic-richtext',
+		title: 'h1.topic-title',
+		author: '.article-meta .author-name',
+		// 时间后面跟着「已编辑」和 IP 属地，各是一个 span
+		published: '.topic-meta .create-time',
+		// 正文一个 <p> 里装好几段，分段是文本里的 \n 加 CSS white-space: pre-wrap，没有 <br>
+		keepLineBreaks: ['.topic-richtext p', '.topic-richtext li'],
 	},
 ];
 

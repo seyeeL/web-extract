@@ -100,13 +100,17 @@ test('规则表每条都写全了必填项', () => {
 	}
 });
 
-test('规则表顺序不影响结果 —— 每个 host 只该命中一条', () => {
+test('规则表顺序不影响结果 —— 每个 host 只该命中一条（同域按 paths 分页面的除外）', () => {
 	for (const rule of SITE_RULES) {
 		for (const host of rule.hosts) {
 			const hits = SITE_RULES.filter((r) =>
 				r.hosts.some((h) => host === h || host.endsWith(`.${h}`)),
 			);
-			assert.equal(hits.length, 1, `${host} 命中了 ${hits.length} 条规则，规则表有重叠`);
+			// 豆瓣的广播和话题是同一个域名下的两种页面，各自写了 paths；
+			// 有一条没写 paths 就会吞掉整个域名，那才是重叠
+			if (hits.length > 1) {
+				assert.ok(hits.every((r) => r.paths), `${host} 命中了 ${hits.length} 条规则，规则表有重叠`);
+			}
 		}
 	}
 });
@@ -849,6 +853,64 @@ test('豆瓣广播：转发的那句话在前，原广播排成引用段，回�
 			'> 几年前。  \n> 何谓research skills？\n>\n' +
 			'> ![](https://img3.doubanio.com/view/status/l/public/2b5a0eaefc3f853.webp)\n\n' +
 			'---\n\n## 回应\n\n> **吝啬猪不记得了** · 2021-12-06 23:06:36\n>\n> 无比赞同',
+	);
+});
+
+// 豆瓣话题（/topic/<id>/），按 2026-10-29 实测页面的结构裁的，文字是编的：一个 <p> 里装好几段，
+// 段间是 \n\n、段内换行是 \n；回复分「最赞」「全部」两份，热门的那条两边都有
+const doubanTopic = `<html><body><div id="wrapper"><div id="content"><div class="grid-16-8 clearfix"><div class="article">
+<h1 class="topic-title">慢慢来的三条办法</h1>
+<div id="topic-content" class="personal-topic">
+<div class="user-face"><a href="https://www.douban.com/people/10001/"><img class="pil" src="https://img1.doubanio.com/icon/u10001-1.jpg" alt="写字的人"></a></div>
+<div class="article-main">
+<div class="article-meta"><a href="https://www.douban.com/people/10001/" class="author-name">写字的人</a> 说：
+<div class="topic-meta"><span class="create-time">2026-09-01 08:00:00</span> <span class="update-time">已编辑</span> <span class="ip-location">上海</span></div></div>
+<div class="topic-content"><div class="rich-content topic-richtext">
+<p data-align="left">第一段，先说结论。
+
+第二段的第一行
+第二段的第二行
+
+* 要点一
+* 要点二</p><ul><li class="unordered-list-item">列表一项</li></ul><p data-align="left">
+最后一段。</p>
+</div></div>
+<div class="interest-tags"><a href="https://www.douban.com/search?q=%23x%23" class="interest-tag">#某个话题#</a></div>
+<div class="topic-opts-bar"><div id="link-report_group"><span class="report">投诉</span></div></div>
+<div class="sns-bar" id="sep"><div class="action-react"><a class="react-like react-btn"><span class="react-text">赞</span><span class="react-num">12</span></a></div></div>
+</div></div>
+<div id="comments" class="comment-list"><div class="comments-app-wrapper">
+<div class="comments-app-popular-comments"><div class="comments-list-wrapper">
+<div class="item comment-item" data-cid="2"><div class="comment-main"><div class="meta-header"><a href="https://www.douban.com/people/20002">读者乙</a><time datetime="2026-09-01 09:00:00">2026-09-01 09:00:00</time></div>
+<div class="comment-content"><div class="markdown" style="font-size: 0px;"><p>说得对</p></div></div></div></div>
+</div></div>
+<div class="comments-app-all-comments"><span class="comments-app-section-title">全部回复：</span><div class="comments-list-wrapper">
+<div class="item comment-item" data-cid="1"><div class="comment-main"><div class="meta-header"><a href="https://www.douban.com/people/20001">读者甲</a><time datetime="2026-09-01 08:30:00">2026-09-01 08:30:00</time></div>
+<div class="comment-content"><div class="markdown" style="font-size: 0px;"><p>沙发</p></div></div></div></div>
+<div class="item comment-item" data-cid="2"><div class="comment-main"><div class="meta-header"><a href="https://www.douban.com/people/20002">读者乙</a><time datetime="2026-09-01 09:00:00">2026-09-01 09:00:00</time></div>
+<div class="comment-content"><div class="markdown" style="font-size: 0px;"><p>说得对</p></div></div></div></div>
+</div></div></div></div>
+</div>
+<div class="aside"><div class="mod mod-usercard"><div class="content">关注此人</div></div><h2>12人赞</h2><ul class="people-list"><li><a href="https://www.douban.com/people/30003/">某人</a></li></ul></div>
+</div></div></div></body></html>`;
+
+test('豆瓣话题：只管 /topic/<id>/，小组帖子不套', () => {
+	assert.equal(ruleFor('https://www.douban.com/topic/1000001/?_spm_id=abc&_dtcc=1')?.name, '豆瓣话题');
+	assert.equal(ruleFor('https://www.douban.com/group/topic/123/'), null);
+	assert.equal(ruleFor('https://www.douban.com/topic/'), null);
+});
+
+test('豆瓣话题：一个 <p> 里的 \\n 分段保住，侧栏、标签、投诉 / 赞那排不进来，回复按 data-cid 去重', () => {
+	const { document } = parseHTML(doubanTopic);
+	const article = extractArticle(document, 'https://www.douban.com/topic/1000001/?_spm_id=abc&_dtcc=1&_i=xyz', { withReplies: true });
+	assert.equal(article.url, 'https://www.douban.com/topic/1000001/', '统计参数去掉');
+	assert.equal(article.title, '慢慢来的三条办法');
+	assert.equal(article.author, '写字的人');
+	assert.equal(article.publishedAt, '2026-09-01 08:00:00');
+	assert.equal(
+		htmlToMarkdown(article.root),
+		'第一段，先说结论。\n\n第二段的第一行  \n第二段的第二行\n\n* 要点一  \n* 要点二\n\n- 列表一项\n\n最后一段。\n\n' +
+			'---\n\n## 回应\n\n> **读者乙** · 2026-09-01 09:00:00\n>\n> 说得对\n\n> **读者甲** · 2026-09-01 08:30:00\n>\n> 沙发',
 	);
 });
 

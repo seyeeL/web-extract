@@ -5,7 +5,7 @@
 - **Markdown**（`--md`）：只留正文，标题、作者、发布时间单独给出
 - **HTML**（`--html`）：保留原站样式，去掉广告和脚本，存成一个文件。多图轮播存下来照样能左右翻；图片可以塞进文件（base64）或者转存到自己的图床
 
-大部分文章页用默认规则就行；公众号、微博、小红书、X、知识星球、GitHub Gist、豆瓣广播有专门的站点规则。
+大部分文章页用默认规则就行；公众号、微博、小红书、X、知识星球、GitHub Gist、豆瓣广播和话题有专门的站点规则。
 
 Save a web page as **Markdown** (main content only, with title, author and publish date) or as **HTML** (the site's own styles kept, ads and scripts removed, one file; image carousels still switch, images embedded as base64 or re-hosted on your own image host). Default rules cover most article pages; WeChat, Weibo, Xiaohongshu, X/Twitter, zsxq, GitHub Gist and Douban have their own site rules.
 
@@ -191,6 +191,7 @@ Claude Code 里当插件装：
 | 知识星球 | 独立详情页和主页详情浮层都只收那一条主题；正文分段靠 `\n`；要登录态 |
 | GitHub Gist | 多文件都收，不带页头和评论；时间是创建时间（页头那个是「Last active」） |
 | 豆瓣广播 | 只管广播详情页；配图从脚本里的 JSON 造出来；转发的原广播排成引用段；回应要 `--browser` |
+| 豆瓣话题 | 只管 `/topic/<id>/`；一个 `<p>` 里装好几段、靠 `\n` 分段，保住；侧栏、话题标签、赞那排不进来 |
 
 每个站点怎么取、实测过哪些页面、踩过什么坑、怎么加新站点：**[docs/sites.md](docs/sites.md)**。
 
