@@ -454,15 +454,34 @@ function imageUrls(doc) {
 }
 
 /**
+ * 调用方按域名给的 CSS（siteStyles），挑出这个地址用得上的。子域自动继承，和站点规则一样。
+ * @param {Array<{hosts: string[], css: string}>} [entries]
+ */
+function siteCssFor(url, entries) {
+	if (!Array.isArray(entries) || !entries.length) return '';
+	let host;
+	try {
+		host = new URL(String(url)).hostname.toLowerCase();
+	} catch {
+		return '';
+	}
+	return entries
+		.filter((entry) => entry?.css && entry.hosts?.some((h) => host === h || host.endsWith(`.${h}`)))
+		.map((entry) => entry.css)
+		.join('\n');
+}
+
+/**
  * 页面侧材料 → 完整的 HTML 文件。
  * @param {ReturnType<import('./snapshot.js').snapshotDocument>} snap
  * @param {{parseDocument: (html: string) => Document, userAgent?: string, timeoutMs?: number,
  *   fetchImpl?: typeof fetch, storeImage?: {put: Function, maxBytes?: number}, embedImages?: boolean,
  *   uploadImage?: (bytes: Uint8Array, info: {mime: string, ext: string, url: string}) => Promise<string>,
- *   now?: Date}} options
+ *   siteStyles?: Array<{hosts: string[], css: string}>, now?: Date}} options
  *   parseDocument：HTML 字符串 → 文档（Node 用 linkedom，浏览器用 DOMParser）；
  *   storeImage：图片怎么存（embedStore / uploadStore / 自己写的）；不给的话 uploadImage 是转存图床，
- *   embedImages 是塞进 HTML，都没有就留远程地址
+ *   embedImages 是塞进 HTML，都没有就留远程地址；
+ *   siteStyles：按域名补的 CSS，排在站点样式后面，想和原站排得不一样时用（见 docs/styled-html.md）
  * @returns {Promise<{html: string, warnings: string[], stats: object}>}
  */
 export async function buildStyledHtml(snap, options = {}) {
@@ -536,6 +555,7 @@ export async function buildStyledHtml(snap, options = {}) {
 	const carousels = Array.from(doc.querySelectorAll(`.${SNAPSHOT_CAROUSEL_CLASS} > .swiper-wrapper`));
 	const maxSlides = Math.max(0, ...carousels.map((el) => el.children.length));
 
+	const siteCss = siteCssFor(snap.url, options.siteStyles);
 	const head = [
 		'<meta charset="utf-8">',
 		// 正文里的脚本已经删干净了，这一行是保险：漏网的事件属性、javascript: 地址也跑不起来
@@ -555,6 +575,8 @@ export async function buildStyledHtml(snap, options = {}) {
 		css ? `<style>${css.replace(/<\/style/gi, '<\\/style')}</style>` : '',
 		snap.mode === 'article' ? `<style>${FIX_CSS}</style>` : '',
 		maxSlides ? `<style>${carouselCss(maxSlides)}</style>` : '',
+		// 站点补的 CSS 放最后，盖过站点自己的
+		siteCss ? `<style>${siteCss.replace(/<\/style/gi, '<\\/style')}</style>` : '',
 	].filter(Boolean).join('\n');
 
 	const saved = (options.now ?? new Date()).toISOString();

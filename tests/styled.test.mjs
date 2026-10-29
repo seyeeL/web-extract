@@ -240,6 +240,21 @@ test('整页存：站点广告位（豆瓣的 dale_）删掉；规则的 prepare
 	assert.match(movie.html, /导演/);
 });
 
+test('整页存：调用方按域名给的 CSS（siteStyles）排在站点样式后面，别的站不加', async () => {
+	const page = '<html><head><style>.left-sm{text-align:start}</style></head><body><div class="row"><div id="total-logged-time" class="col-sm-10 left-sm">2 hrs</div></div></body></html>';
+	const siteStyles = [{ hosts: ['wakatime.com'], css: '#total-logged-time{text-align:center!important}' }];
+	const { html } = await styledHtml(page, 'https://wakatime.com/dashboard/day?date=2026-10-27', { fetchImpl: fakeFetch(), siteStyles });
+	const { document } = parseHTML(html);
+	const styles = Array.from(document.querySelectorAll('head style'), (el) => el.textContent);
+	assert.equal(styles.at(-1), siteStyles[0].css);
+	assert.ok(styles.findIndex((css) => css.includes('.left-sm')) < styles.length - 1);
+	const other = await styledHtml(page, 'https://example.com/', { fetchImpl: fakeFetch(), siteStyles });
+	assert.doesNotMatch(other.html, /text-align:center/);
+	// 不给就不加
+	const plain = await styledHtml(page, 'https://wakatime.com/dashboard/day', { fetchImpl: fakeFetch() });
+	assert.doesNotMatch(plain.html, /text-align:center/);
+});
+
 test('整页存：<iframe> 换成一样大的空块，版面不塌；广告位里的 iframe 跟着广告一起删', async () => {
 	const page = '<html><body><div class="hero"><div class="login"><iframe src="https://accounts.example.com/login" width="300" height="320" class="lf"></iframe></div></div><div class="ad-box"><iframe src="https://ads.example.com/x"></iframe></div></body></html>';
 	const { html } = await styledHtml(page, 'https://example.com/', { fetchImpl: fakeFetch() });

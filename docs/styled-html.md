@@ -29,6 +29,18 @@ web-extract parse <url> --attach --html --upload-images -o page.html        # �
 站点规则的 `prepare` 也跑（豆瓣广播的配图在静态 HTML 里只是脚本里的 JSON），别的规则（删头像、重排引用段）
 不跑：整页存就是要原样。
 
+想和原站排得不一样（个人偏好，不是修 bug），调用 `buildStyledHtml` 时传 `siteStyles`，按域名给一段 CSS，
+排在站点样式后面。web-extract 自己不带任何一条，由用它的地方（比如浏览器扩展）自己配：
+
+```js
+buildStyledHtml(snap, {
+  siteStyles: [
+    // 示例：WakaTime 按天看的那页，切换日期那行原站在宽屏上靠左，存下来改成居中
+    { hosts: ['wakatime.com'], css: '#total-logged-time{flex-basis:100%!important;max-width:100%!important;text-align:center!important}' },
+  ],
+});
+```
+
 **只存正文（`--article`）。** 正文选哪块和 `--md` 一样（默认规则 / 站点规则），再把正文到 `<body>` 之间的
 每一层祖先浅拷贝一份套回去：只要标签和属性，不要兄弟节点。站点 CSS 里 `.article .post p` 这种后代选择器
 照样命中。正文上面补一行出处（作者 · 时间 · 原文链接），字体颜色跟着站点走；正文没带标题时再补标题，
